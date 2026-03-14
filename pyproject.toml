@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nlwebagent"
+version = "0.1.0"
+description = "Natural Language Web Testing Agent - AI-powered web automation with Playwright"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Tanner Eischen"}
+]
+keywords = [
+    "web automation",
+    "testing",
+    "playwright",
+    "ai",
+    "natural language",
+    "web testing",
+    "browser automation",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "playwright>=1.40.0",
+    "anthropic>=0.18.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "aiohttp>=3.9.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+nlwa = "cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/tanner-eischen/nlwebagent"
+Documentation = "https://github.com/tanner-eischen/nlwebagent#readme"
+Repository = "https://github.com/tanner-eischen/nlwebagent"
+Issues = "https://github.com/tanner-eischen/nlwebagent/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*", "browser*", "models*", "auth*", "cli*"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["agent", "browser", "models", "cli"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
