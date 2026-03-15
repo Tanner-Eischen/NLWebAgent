@@ -58,6 +58,9 @@ Documentation = "https://github.com/tanner-eischen/nlwebagent#readme"
 Repository = "https://github.com/tanner-eischen/nlwebagent"
 Issues = "https://github.com/tanner-eischen/nlwebagent/issues"
 
+[tool.setuptools]
+py-modules = ["config"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agent*", "browser*", "models*", "auth*", "cli*"]
