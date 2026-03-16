@@ -1,9 +1,6 @@
 # Runtime artifacts
 recordings/
 *.webm
-*.png
-*.jpg
-*.jpeg
 storage_state.json
 
 # Python
