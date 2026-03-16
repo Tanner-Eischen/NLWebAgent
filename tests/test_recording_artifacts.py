@@ -11,12 +11,12 @@ try:
 except Exception as exc:
     raise unittest.SkipTest(f"playwright not installed: {exc}")
 
-from config import config
+from config import config  # noqa: E402
 
 config.reload()
 
-from agent.orchestrator import WebAutomationAgent
-from browser.playwright_agent import BrowserController
+from agent.orchestrator import WebAutomationAgent  # noqa: E402
+from browser.playwright_agent import BrowserController  # noqa: E402
 
 
 class FakeModelSelector:
@@ -41,7 +41,9 @@ class RecordingArtifactsTests(unittest.IsolatedAsyncioTestCase):
 
         model = FakeModelSelector(["WAIT:0.2", "DONE"])
         browser = BrowserController("recording_artifacts")
-        agent = WebAutomationAgent("recording_artifacts", model_selector=model, browser=browser)
+        agent = WebAutomationAgent(
+            "recording_artifacts", model_selector=model, browser=browser
+        )
 
         await agent.initialize()
         result = await agent.execute_task(

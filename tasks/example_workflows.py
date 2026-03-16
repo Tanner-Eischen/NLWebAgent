@@ -2,7 +2,8 @@ import asyncio
 import logging
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from agent.orchestrator import WebAutomationAgent
 
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +35,9 @@ async def example_google_search():
     print(f"\nStatus: {result['status']}")
     print(f"Steps: {result['steps_taken']}")
     for action in result["actions"]:
-        print(f"  {action['step']}.{action['attempt']}: {action['action']} ({action['status']})")
+        print(
+            f"  {action['step']}.{action['attempt']}: {action['action']} ({action['status']})"
+        )
 
     if result.get("errors"):
         print("Errors:")

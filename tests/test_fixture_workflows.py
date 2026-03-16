@@ -3,10 +3,8 @@ Deterministic tests using HTML fixtures and a fake model.
 
 These tests validate the agent workflow without requiring a real LLM.
 """
-import asyncio
 from pathlib import Path
-from typing import Optional, List
-from unittest.mock import AsyncMock
+from typing import Optional
 
 import pytest
 
@@ -96,11 +94,17 @@ class FakeModelSelector:
         self.model = FakeDeterministicModel(scenario)
 
     async def decide_next_action_with_fallback(
-        self, screenshot_path: str, task: str, history: str = None, error_hint: str = None, dom_context: str = None,
+        self,
+        screenshot_path: str,
+        task: str,
+        history: str = None,
+        error_hint: str = None,
+        dom_context: str = None,
     ) -> tuple:
-        action = await self.model.decide_next_action(screenshot_path, task, history, error_hint)
+        action = await self.model.decide_next_action(
+            screenshot_path, task, history, error_hint
+        )
         return action, "fake_model"
-
 
     async def close(self):
         pass
@@ -151,7 +155,9 @@ async def test_search_workflow(search_html):
             max_steps=10,
         )
 
-        assert result["status"] == "success", f"Expected success, got {result['status']}"
+        assert (
+            result["status"] == "success"
+        ), f"Expected success, got {result['status']}"
         assert len(result["actions"]) >= 3, "Should have at least 3 actions"
         assert result["steps_taken"] >= 3
 
@@ -184,7 +190,9 @@ async def test_login_workflow(login_html):
             max_steps=10,
         )
 
-        assert result["status"] == "success", f"Expected success, got {result['status']}"
+        assert (
+            result["status"] == "success"
+        ), f"Expected success, got {result['status']}"
         assert len(result["actions"]) >= 5, "Should have at least 5 actions"
 
     finally:
@@ -212,7 +220,9 @@ async def test_extract_workflow(data_table_html):
             max_steps=10,
         )
 
-        assert result["status"] == "success", f"Expected success, got {result['status']}"
+        assert (
+            result["status"] == "success"
+        ), f"Expected success, got {result['status']}"
 
         # Check extractions were collected
         assert len(result["extractions"]) >= 1, "Should have extractions"
@@ -242,12 +252,14 @@ async def test_click_at_fallback_workflow(search_html):
             max_steps=10,
         )
 
-        assert result["status"] == "success", f"Expected success, got {result['status']}"
+        assert (
+            result["status"] == "success"
+        ), f"Expected success, got {result['status']}"
 
         # Verify coordinate actions were executed
         actions = result["actions"]
         click_at_actions = [a for a in actions if "CLICK_AT" in a.get("action", "")]
-        type_at_actions = [a for a in actions if "TYPE_AT" in a.get("action", "")]
+        _type_at_actions = [a for a in actions if "TYPE_AT" in a.get("action", "")]  # noqa: F841
         assert len(click_at_actions) >= 1, "Should have CLICK_AT actions"
 
     finally:

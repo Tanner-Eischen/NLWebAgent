@@ -29,12 +29,14 @@ def get_font():
     return ImageFont.load_default()
 
 
-def create_terminal_screenshot(title: str, content: str, output_path: str, width: int = 800):
+def create_terminal_screenshot(
+    title: str, content: str, output_path: str, width: int = 800
+):
     """Create a terminal-style screenshot."""
     font = get_font()
 
     # Calculate dimensions
-    lines = content.split('\n')
+    lines = content.split("\n")
     padding = 20
     title_bar_height = 35
 
@@ -43,12 +45,14 @@ def create_terminal_screenshot(title: str, content: str, output_path: str, width
     total_height = title_bar_height + content_height
 
     # Create image
-    img = Image.new('RGB', (width, total_height), BG_COLOR)
+    img = Image.new("RGB", (width, total_height), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
     # Draw title bar
     draw.rectangle([(0, 0), (width, title_bar_height)], fill="#161b22")
-    draw.line([(0, title_bar_height), (width, title_bar_height)], fill=BORDER_COLOR, width=1)
+    draw.line(
+        [(0, title_bar_height), (width, title_bar_height)], fill=BORDER_COLOR, width=1
+    )
 
     # Draw window controls (circles)
     draw.ellipse([(15, 12), (27, 24)], fill="#ff5f56")
@@ -62,17 +66,17 @@ def create_terminal_screenshot(title: str, content: str, output_path: str, width
     y = title_bar_height + padding
     for line in lines:
         # Colorize certain parts
-        if line.strip().startswith('$'):
+        if line.strip().startswith("$"):
             draw.text((padding, y), line, fill=GREEN_COLOR, font=font)
-        elif '✅' in line or 'PASSED' in line:
+        elif "✅" in line or "PASSED" in line:
             draw.text((padding, y), line, fill=GREEN_COLOR, font=font)
-        elif '❌' in line or 'FAILED' in line or 'ERROR' in line:
+        elif "❌" in line or "FAILED" in line or "ERROR" in line:
             draw.text((padding, y), line, fill="#f85149", font=font)
-        elif '🚀' in line or '📍' in line or '━' in line:
+        elif "🚀" in line or "📍" in line or "━" in line:
             draw.text((padding, y), line, fill=ACCENT_COLOR, font=font)
-        elif line.strip().startswith('//'):
+        elif line.strip().startswith("//"):
             draw.text((padding, y), line, fill=GRAY_COLOR, font=font)
-        elif 'Step' in line and ':' in line:
+        elif "Step" in line and ":" in line:
             draw.text((padding, y), line, fill=YELLOW_COLOR, font=font)
         else:
             draw.text((padding, y), line, fill=TEXT_COLOR, font=font)
@@ -106,9 +110,7 @@ def main():
 +-----------------------------------------------------------------------------+"""
 
     create_terminal_screenshot(
-        "Terminal - nlwa",
-        cli_content,
-        f"{assets_dir}/cli-overview.png"
+        "Terminal - nlwa", cli_content, f"{assets_dir}/cli-overview.png"
     )
 
     # Screenshot 2: Test Run Example
@@ -137,7 +139,7 @@ Artifacts: 📹 video.webm  📝 transcript.json  📸 5 screenshots"""
         "Terminal - test run",
         test_content,
         f"{assets_dir}/test-run-example.png",
-        width=850
+        width=850,
     )
 
     # Screenshot 3: Generated Playwright Code
@@ -171,7 +173,7 @@ test('login shows dashboard', async ({ page }) => {
         "Terminal - codegen",
         codegen_content,
         f"{assets_dir}/codegen-example.png",
-        width=850
+        width=850,
     )
 
     # Screenshot 4: Assertion Example
@@ -195,7 +197,7 @@ Comparison: "Welcome to Example" contains "Welcome"
         "Terminal - assertions",
         assert_content,
         f"{assets_dir}/assertion-example.png",
-        width=750
+        width=750,
     )
 
     print(f"\n✅ Generated 4 screenshots in {assets_dir}/")

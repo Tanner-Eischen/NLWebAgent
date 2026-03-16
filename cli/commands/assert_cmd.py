@@ -8,7 +8,6 @@ Usage:
 """
 import asyncio
 import json
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -26,11 +25,19 @@ console = Console()
 
 @app.callback(invoke_without_command=True)
 def assert_cmd(
-    assertion: str = typer.Argument(..., help="Assertion expression (e.g., 'price < 50')"),
+    assertion: str = typer.Argument(
+        ..., help="Assertion expression (e.g., 'price < 50')"
+    ),
     url: str = typer.Option(..., "--url", "-u", help="URL to assert against"),
-    selector: Optional[str] = typer.Option(None, "--selector", "-s", help="CSS selector for target element"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file for assertion result"),
-    headless: bool = typer.Option(True, "--headless/-H", help="Run browser in headless mode"),
+    selector: Optional[str] = typer.Option(
+        None, "--selector", "-s", help="CSS selector for target element"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Output file for assertion result"
+    ),
+    headless: bool = typer.Option(
+        True, "--headless/-H", help="Run browser in headless mode"
+    ),
 ):
     """
     Run a semantic assertion against a web page.
@@ -55,6 +62,7 @@ async def _assert_async(
 ):
     """Async implementation of assert command."""
     import os
+
     os.environ["HEADLESS"] = str(headless).lower()
 
     browser = BrowserController()
@@ -83,10 +91,10 @@ async def _assert_async(
 
         # Return appropriate exit code
         if result.passed:
-            console.print(f"\n[bold green]ASSERTION PASSED[/]")
+            console.print("\n[bold green]ASSERTION PASSED[/]")
             raise typer.Exit(0)
         else:
-            console.print(f"\n[bold red]ASSERTION FAILED[/]")
+            console.print("\n[bold red]ASSERTION FAILED[/]")
             raise typer.Exit(1)
 
     except Exception as e:

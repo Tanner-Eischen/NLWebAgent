@@ -3,7 +3,12 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
-from agent.actions import ActionParseError, ActionType, parse_action, parse_action_lenient
+from agent.actions import (
+    ActionParseError,
+    ActionType,
+    parse_action,
+    parse_action_lenient,
+)
 from auth.manager import AuthManager
 from browser.playwright_agent import BrowserController
 from config import config
@@ -86,7 +91,10 @@ class WebAutomationAgent:
                 forced_coordinate = False
 
                 if config.agent.auto_checkboxes:
-                    if config.agent.pause_on_captcha and await self.browser.detect_captcha():
+                    if (
+                        config.agent.pause_on_captcha
+                        and await self.browser.detect_captcha()
+                    ):
                         captcha_msg = "CAPTCHA detected; waiting for manual completion."
                         result["errors"].append(captcha_msg)
                         result["status"] = "paused_for_captcha"
@@ -100,14 +108,18 @@ class WebAutomationAgent:
                         action_history.append("AUTO_CHECKBOX -> success")
 
                 while retries <= self.max_retries + (1 if forced_coordinate else 0):
-                    history_text = "\n".join(action_history[-5:]) if action_history else ""
+                    history_text = (
+                        "\n".join(action_history[-5:]) if action_history else ""
+                    )
                     if last_error and "invalid action" in last_error.lower():
                         history_text = ""
 
                     # Get DOM context for better selector decisions
                     dom_context = ""
                     try:
-                        dom_context = await self.browser.get_dom_context(max_elements=40)
+                        dom_context = await self.browser.get_dom_context(
+                            max_elements=40
+                        )
                     except Exception as e:
                         logger.warning(f"Could not get DOM context: {e}")
 
@@ -164,7 +176,9 @@ class WebAutomationAgent:
                                 f"{error_msg}. Reply with exactly ONE line in the "
                                 "format ACTION:... (no markdown, no prefixes)."
                             )
-                            action_entry.update({"status": "invalid", "error": error_msg})
+                            action_entry.update(
+                                {"status": "invalid", "error": error_msg}
+                            )
                             result["actions"].append(action_entry)
                             result["errors"].append(error_msg)
                             retries += 1
@@ -183,7 +197,9 @@ class WebAutomationAgent:
                                 }
                             )
                             result["actions"].append(action_entry)
-                            submitted = await self._auto_type_last_click(auto_text, result)
+                            submitted = await self._auto_type_last_click(
+                                auto_text, result
+                            )
                             action_history.append(
                                 f"TYPE_AT:{auto_text} (auto after click)"
                             )
@@ -194,10 +210,10 @@ class WebAutomationAgent:
 
                     if action.type == ActionType.NAVIGATE:
                         if self._navigation_count >= 1:
-                            error_msg = (
-                                "NAVIGATE disabled after initial load; use CLICK_AT/TYPE_AT."
+                            error_msg = "NAVIGATE disabled after initial load; use CLICK_AT/TYPE_AT."
+                            action_entry.update(
+                                {"status": "invalid", "error": error_msg}
                             )
-                            action_entry.update({"status": "invalid", "error": error_msg})
                             result["actions"].append(action_entry)
                             result["errors"].append(error_msg)
                             retries += 1
@@ -210,7 +226,9 @@ class WebAutomationAgent:
                                 "Redundant NAVIGATE to the current page; "
                                 "use CLICK_AT/TYPE_AT instead."
                             )
-                            action_entry.update({"status": "invalid", "error": error_msg})
+                            action_entry.update(
+                                {"status": "invalid", "error": error_msg}
+                            )
                             result["actions"].append(action_entry)
                             result["errors"].append(error_msg)
                             retries += 1
@@ -226,7 +244,9 @@ class WebAutomationAgent:
                         break
 
                     if action.type == ActionType.ERROR:
-                        action_entry.update({"status": "failed", "error": action.message})
+                        action_entry.update(
+                            {"status": "failed", "error": action.message}
+                        )
                         result["actions"].append(action_entry)
                         result["errors"].append(action.message)
                         result["status"] = "failed"
@@ -254,7 +274,9 @@ class WebAutomationAgent:
                         last_error = hint
                         if selector_error and not forced_coordinate:
                             forced_coordinate = True
-                        max_attempts = self.max_retries + (1 if forced_coordinate else 0)
+                        max_attempts = self.max_retries + (
+                            1 if forced_coordinate else 0
+                        )
                         if retries > max_attempts:
                             result["status"] = "failed"
                         continue
@@ -311,7 +333,9 @@ class WebAutomationAgent:
                 if coords:
                     ok = await self.browser.click_at(coords[0], coords[1])
                     if ok:
-                        logger.info(f"Self-healing: CLICK fell back to coordinates {coords}")
+                        logger.info(
+                            f"Self-healing: CLICK fell back to coordinates {coords}"
+                        )
             return ok, self.browser.last_error
 
         if action.type == ActionType.CLICK_AT:
@@ -326,7 +350,9 @@ class WebAutomationAgent:
                 if coords:
                     ok = await self.browser.type_at(coords[0], coords[1], action.text)
                     if ok:
-                        logger.info(f"Self-healing: TYPE fell back to coordinates {coords}")
+                        logger.info(
+                            f"Self-healing: TYPE fell back to coordinates {coords}"
+                        )
             return ok, self.browser.last_error
 
         if action.type == ActionType.TYPE_AT:
@@ -349,16 +375,20 @@ class WebAutomationAgent:
         if action.type == ActionType.EXTRACT:
             ok, value = await self.browser.extract(action.selector, action.attr)
             if ok and value is not None:
-                result["extractions"].append({
-                    "selector": action.selector,
-                    "attr": action.attr,
-                    "value": value,
-                })
+                result["extractions"].append(
+                    {
+                        "selector": action.selector,
+                        "attr": action.attr,
+                        "value": value,
+                    }
+                )
             return ok, self.browser.last_error
 
         return False, f"Unsupported action type: {action.type}"
 
-    async def _get_fallback_coordinates(self, selector: str) -> Optional[Tuple[float, float]]:
+    async def _get_fallback_coordinates(
+        self, selector: str
+    ) -> Optional[Tuple[float, float]]:
         """Get fallback coordinates via vision model when selector fails."""
         if not self.model_selector or not self.browser:
             return None
@@ -367,7 +397,9 @@ class WebAutomationAgent:
             screenshot = await self.browser.take_screenshot("fallback_vision")
             # Ask vision model to find the element described by the selector
             prompt = f"Find the element matching selector '{selector}'. Return coordinates as x:y (normalized 0-1). If not found, return NONE."
-            response = await self.model_selector.model.analyze_screenshot(screenshot, prompt)
+            response = await self.model_selector.model.analyze_screenshot(
+                screenshot, prompt
+            )
             if response and ":" in response and "NONE" not in response.upper():
                 parts = response.strip().split(":")
                 if len(parts) >= 2:
@@ -386,10 +418,10 @@ class WebAutomationAgent:
         lowered = error_msg.lower()
         if "selector not found" in lowered or "unknown engine" in lowered:
             if force_coordinate:
-                return (
-                    f"{error_msg}. Output ONLY CLICK_AT:x:y or TYPE_AT:x:y:text."
-                )
-            return f"{error_msg}. Use CLICK_AT:x:y or TYPE_AT:x:y:text if selectors fail."
+                return f"{error_msg}. Output ONLY CLICK_AT:x:y or TYPE_AT:x:y:text."
+            return (
+                f"{error_msg}. Use CLICK_AT:x:y or TYPE_AT:x:y:text if selectors fail."
+            )
         return error_msg
 
     @staticmethod
@@ -421,13 +453,15 @@ class WebAutomationAgent:
             parts = task_description.split("'")
             if len(parts) >= 3:
                 return parts[1].strip()
-        if "\"" in task_description:
-            parts = task_description.split("\"")
+        if '"' in task_description:
+            parts = task_description.split('"')
             if len(parts) >= 3:
                 return parts[1].strip()
         return None
 
-    def _should_auto_type(self, task_description: str, action_history: list, action: Any) -> bool:
+    def _should_auto_type(
+        self, task_description: str, action_history: list, action: Any
+    ) -> bool:
         if action.type != ActionType.CLICK_AT:
             return False
         if not self._extract_query(task_description):

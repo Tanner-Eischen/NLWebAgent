@@ -163,9 +163,13 @@ class BrowserController:
             else:
                 raise ValueError(f"Unsupported scroll direction: {direction}")
 
-            await self.page.evaluate("({dx, dy}) => window.scrollBy(dx, dy)", {"dx": dx, "dy": dy})
+            await self.page.evaluate(
+                "({dx, dy}) => window.scrollBy(dx, dy)", {"dx": dx, "dy": dy}
+            )
             logger.info(f"Scrolled {direction} by {amount}")
-            self.transcript.append({"action": "scroll", "direction": direction, "amount": amount})
+            self.transcript.append(
+                {"action": "scroll", "direction": direction, "amount": amount}
+            )
             self.last_error = None
             return True
         except Exception as e:
@@ -269,7 +273,9 @@ class BrowserController:
             logger.warning(f"Could not get element bounds: {e}")
             return None
 
-    async def scan_interactive_elements(self, max_elements: int = 50) -> List[Dict[str, Any]]:
+    async def scan_interactive_elements(
+        self, max_elements: int = 50
+    ) -> List[Dict[str, Any]]:
         """
         Scan the page for interactive elements and return their selectors and info.
 
@@ -288,7 +294,8 @@ class BrowserController:
 
         try:
             # Query all interactive elements
-            interactive_script = """
+            interactive_script = (
+                """
             () => {
                 const elements = [];
                 const selectors = [
@@ -347,13 +354,15 @@ class BrowserController:
                 }
                 return elements;
             }
-            """ % max_elements
+            """
+                % max_elements
+            )
 
             elements = await self.page.evaluate(interactive_script)
 
             # Add Playwright role-based locators for better reliability
             for el in elements:
-                el['playwright_locator'] = self._generate_playwright_locator(el)
+                el["playwright_locator"] = self._generate_playwright_locator(el)
 
             logger.info(f"Scanned {len(elements)} interactive elements")
             return elements
@@ -365,27 +374,27 @@ class BrowserController:
     def _generate_playwright_locator(self, el: Dict[str, Any]) -> str:
         """Generate a Playwright locator string for an element."""
         # Prefer role-based locators
-        if el.get('role'):
-            role = el['role']
-            name = el.get('aria_label') or el.get('text') or el.get('name')
+        if el.get("role"):
+            role = el["role"]
+            name = el.get("aria_label") or el.get("text") or el.get("name")
             if name:
                 return f"getByRole('{role}', {{ name: '{name[:30]}' }})"
             return f"getByRole('{role}')"
 
         # Label-based for inputs
-        if el.get('aria_label'):
+        if el.get("aria_label"):
             return f"getByLabel('{el['aria_label'][:30]}')"
 
-        if el.get('placeholder'):
+        if el.get("placeholder"):
             return f"getByPlaceholder('{el['placeholder'][:30]}')"
 
         # Text-based for buttons/links
-        if el.get('text') and el.get('tag') in ('button', 'a'):
-            text = el['text'].replace("'", "\\'")[:30]
+        if el.get("text") and el.get("tag") in ("button", "a"):
+            text = el["text"].replace("'", "\\'")[:30]
             return f"getByText('{text}', {{ exact: false }})"
 
         # Fall back to CSS selector
-        return el.get('selector', '')
+        return el.get("selector", "")
 
     async def get_dom_context(self, max_elements: int = 50) -> str:
         """
@@ -402,60 +411,66 @@ class BrowserController:
         lines.append("-" * 40)
 
         # Group by type
-        buttons = [e for e in elements if e['tag'] == 'button' or e.get('role') == 'button']
-        inputs = [e for e in elements if e['tag'] in ('input', 'textarea', 'select')]
-        links = [e for e in elements if e['tag'] == 'a']
-        others = [e for e in elements if e not in buttons and e not in inputs and e not in links]
+        buttons = [
+            e for e in elements if e["tag"] == "button" or e.get("role") == "button"
+        ]
+        inputs = [e for e in elements if e["tag"] in ("input", "textarea", "select")]
+        links = [e for e in elements if e["tag"] == "a"]
+        others = [
+            e
+            for e in elements
+            if e not in buttons and e not in inputs and e not in links
+        ]
 
         if buttons:
             lines.append("\nBUTTONS:")
             for el in buttons[:10]:
-                selector = el.get('selector', '')
-                text = el.get('text', '')[:30]
-                pw = el.get('playwright_locator', '')
+                selector = el.get("selector", "")
+                text = el.get("text", "")[:30]
+                pw = el.get("playwright_locator", "")
                 lines.append(f"  {selector}")
                 if text:
-                    lines.append(f"    text: \"{text}\"")
+                    lines.append(f'    text: "{text}"')
                 if pw and pw != selector:
                     lines.append(f"    playwright: {pw}")
 
         if inputs:
             lines.append("\nINPUTS:")
             for el in inputs[:10]:
-                selector = el.get('selector', '')
-                input_type = el.get('type', 'text')
-                placeholder = el.get('placeholder', '')
-                aria_label = el.get('aria_label', '')
-                name = el.get('name', '')
-                pw = el.get('playwright_locator', '')
+                selector = el.get("selector", "")
+                input_type = el.get("type", "text")
+                placeholder = el.get("placeholder", "")
+                aria_label = el.get("aria_label", "")
+                name = el.get("name", "")
+                pw = el.get("playwright_locator", "")
 
                 lines.append(f"  {selector} (type: {input_type})")
                 if placeholder:
-                    lines.append(f"    placeholder: \"{placeholder}\"")
+                    lines.append(f'    placeholder: "{placeholder}"')
                 if aria_label:
-                    lines.append(f"    aria-label: \"{aria_label}\"")
+                    lines.append(f'    aria-label: "{aria_label}"')
                 if name:
-                    lines.append(f"    name: \"{name}\"")
+                    lines.append(f'    name: "{name}"')
                 if pw and pw != selector:
                     lines.append(f"    playwright: {pw}")
 
         if links:
             lines.append("\nLINKS:")
             for el in links[:5]:
-                selector = el.get('selector', '')
-                text = el.get('text', '')[:30]
-                href = el.get('href', '')[:50]
+                selector = el.get("selector", "")
+                text = el.get("text", "")[:30]
+                href = el.get("href", "")[:50]
                 lines.append(f"  {selector}")
                 if text:
-                    lines.append(f"    text: \"{text}\"")
+                    lines.append(f'    text: "{text}"')
                 if href:
                     lines.append(f"    href: {href}")
 
         if others:
             lines.append("\nOTHER INTERACTIVE:")
             for el in others[:5]:
-                selector = el.get('selector', '')
-                tag = el.get('tag', '')
+                selector = el.get("selector", "")
+                tag = el.get("tag", "")
                 lines.append(f"  {selector} ({tag})")
 
         return "\n".join(lines)
@@ -537,7 +552,7 @@ class BrowserController:
     def _selector_alternatives(selector: str) -> List[str]:
         alts: List[str] = []
         lowered = selector.lower()
-        if "placeholder=\"search\"" in lowered or "placeholder='search'" in lowered:
+        if 'placeholder="search"' in lowered or "placeholder='search'" in lowered:
             alts.extend(
                 [
                     "#APjFqb",
@@ -551,7 +566,7 @@ class BrowserController:
                     "input[type='text']",
                 ]
             )
-        if "name=\"q\"" in lowered or "name='q'" in lowered:
+        if 'name="q"' in lowered or "name='q'" in lowered:
             alts.extend(
                 [
                     "#APjFqb",
@@ -582,7 +597,9 @@ class BrowserController:
         }
 
     def save_transcript(self) -> str:
-        path = Path(config.browser.transcript_dir) / f"{self.session_id}_transcript.json"
+        path = (
+            Path(config.browser.transcript_dir) / f"{self.session_id}_transcript.json"
+        )
         with open(path, "w") as f:
             json.dump(self.transcript, f, indent=2)
         return str(path)
@@ -602,8 +619,13 @@ class BrowserController:
 
         if self.context:
             try:
-                if config.browser.reuse_storage_state and config.browser.storage_state_path:
-                    await self.context.storage_state(path=config.browser.storage_state_path)
+                if (
+                    config.browser.reuse_storage_state
+                    and config.browser.storage_state_path
+                ):
+                    await self.context.storage_state(
+                        path=config.browser.storage_state_path
+                    )
             except Exception as e:
                 logger.warning(f"Failed to save storage state: {e}")
 

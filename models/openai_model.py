@@ -7,7 +7,6 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from models.base_model import AIModel
-from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +16,7 @@ class OpenAIModel(AIModel):
 
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o"):
         import os
+
         key = api_key or os.getenv("OPENAI_API_KEY")
         if not key:
             raise ValueError("OPENAI_API_KEY not configured")
@@ -29,6 +29,7 @@ class OpenAIModel(AIModel):
         image_b64 = self._image_to_base64(screenshot_path)
 
         import mimetypes
+
         mime_type, _ = mimetypes.guess_type(screenshot_path)
         if not mime_type or not mime_type.startswith("image/"):
             mime_type = "image/png"
@@ -43,14 +44,14 @@ class OpenAIModel(AIModel):
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:{mime_type};base64,{image_b64}",
-                                "detail": "low"
-                            }
+                                "detail": "low",
+                            },
                         },
-                        {"type": "text", "text": prompt}
-                    ]
+                        {"type": "text", "text": prompt},
+                    ],
                 }
             ],
-            max_tokens=1024
+            max_tokens=1024,
         )
 
         return response.choices[0].message.content
@@ -63,7 +64,7 @@ Task: {prompt}"""
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": full_prompt}],
-            max_tokens=1024
+            max_tokens=1024,
         )
 
         return response.choices[0].message.content
@@ -80,6 +81,7 @@ Task: {prompt}"""
         image_b64 = self._image_to_base64(screenshot_path)
 
         import mimetypes
+
         mime_type, _ = mimetypes.guess_type(screenshot_path)
         if not mime_type or not mime_type.startswith("image/"):
             mime_type = "image/png"
@@ -133,15 +135,15 @@ Rules:
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:{mime_type};base64,{image_b64}",
-                                "detail": "low"
-                            }
+                                "detail": "low",
+                            },
                         },
-                        {"type": "text", "text": decision_prompt}
-                    ]
+                        {"type": "text", "text": decision_prompt},
+                    ],
                 }
             ],
             max_tokens=128,
-            temperature=0.2
+            temperature=0.2,
         )
 
         return response.choices[0].message.content.strip()

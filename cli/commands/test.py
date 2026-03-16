@@ -9,7 +9,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
 import typer
 from rich.console import Console
@@ -28,9 +28,15 @@ console = Console()
 def test(
     description: str = typer.Argument(..., help="Natural language test description"),
     url: str = typer.Option(..., "--url", "-u", help="Starting URL for the test"),
-    output: Path = typer.Option("./test-results", "--output", "-o", help="Output directory for test results"),
-    max_steps: int = typer.Option(30, "--max-steps", "-m", help="Maximum number of steps"),
-    headless: bool = typer.Option(False, "--headless", "-h", help="Run browser in headless mode"),
+    output: Path = typer.Option(
+        "./test-results", "--output", "-o", help="Output directory for test results"
+    ),
+    max_steps: int = typer.Option(
+        30, "--max-steps", "-m", help="Maximum number of steps"
+    ),
+    headless: bool = typer.Option(
+        False, "--headless", "-h", help="Run browser in headless mode"
+    ),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop on first failure"),
 ):
     """
@@ -63,7 +69,9 @@ async def _test_async(
     output.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    console.print(Panel(f"[bold blue]Natural Language Test[/]\n{description}", title="Test"))
+    console.print(
+        Panel(f"[bold blue]Natural Language Test[/]\n{description}", title="Test")
+    )
     console.print(f"[dim]URL: {url}[/dim]\n")
 
     model_selector = ModelSelector()
@@ -103,9 +111,8 @@ async def _test_async(
         test_result["assertions"] = assertions
 
         # Determine pass/fail
-        passed = (
-            result["status"] == "success"
-            and all(a.get("passed", False) for a in assertions)
+        passed = result["status"] == "success" and all(
+            a.get("passed", False) for a in assertions
         )
         test_result["passed"] = passed
 
@@ -123,10 +130,10 @@ async def _test_async(
 
         # Return appropriate exit code
         if passed:
-            console.print(f"\n[bold green]TEST PASSED[/]")
+            console.print("\n[bold green]TEST PASSED[/]")
             raise typer.Exit(0)
         else:
-            console.print(f"\n[bold red]TEST FAILED[/]")
+            console.print("\n[bold red]TEST FAILED[/]")
             raise typer.Exit(1)
 
     except Exception as e:
@@ -143,13 +150,15 @@ def _generate_assertions(description: str, result: dict) -> List[dict]:
     assertions = []
 
     # Basic assertion: task completed successfully
-    assertions.append({
-        "type": "task_completion",
-        "description": "Task executed without errors",
-        "expected": "success",
-        "actual": result["status"],
-        "passed": result["status"] == "success",
-    })
+    assertions.append(
+        {
+            "type": "task_completion",
+            "description": "Task executed without errors",
+            "expected": "success",
+            "actual": result["status"],
+            "passed": result["status"] == "success",
+        }
+    )
 
     # Check for specific keywords in description
     desc_lower = description.lower()
@@ -159,35 +168,45 @@ def _generate_assertions(description: str, result: dict) -> List[dict]:
         actions = [a.get("action", "").lower() for a in result.get("actions", [])]
         has_username = any("username" in a or "#user" in a for a in actions)
         has_password = any("password" in a or "#pass" in a for a in actions)
-        has_submit = any("login" in a or "submit" in a or "click" in a for a in actions)
+        _has_submit = any(
+            "login" in a or "submit" in a or "click" in a for a in actions
+        )  # noqa: F841
 
-        assertions.append({
-            "type": "action_sequence",
-            "description": "Login form filled",
-            "passed": has_username and has_password,
-        })
+        assertions.append(
+            {
+                "type": "action_sequence",
+                "description": "Login form filled",
+                "passed": has_username and has_password,
+            }
+        )
 
     # Search-related assertions
     if "search" in desc_lower:
         extractions = result.get("extractions", [])
         actions = [a.get("action", "") for a in result.get("actions", [])]
         has_type = any("TYPE" in a for a in actions)
-        has_search_action = has_type or any("search" in str(e).lower() for e in extractions)
+        has_search_action = has_type or any(
+            "search" in str(e).lower() for e in extractions
+        )
 
-        assertions.append({
-            "type": "action_performed",
-            "description": "Search action executed",
-            "passed": has_search_action,
-        })
+        assertions.append(
+            {
+                "type": "action_performed",
+                "description": "Search action executed",
+                "passed": has_search_action,
+            }
+        )
 
     # Extraction assertions
     for extraction in result.get("extractions", []):
-        assertions.append({
-            "type": "extraction",
-            "description": f"Extracted {extraction['attr']} from {extraction['selector']}",
-            "actual": extraction["value"],
-            "passed": extraction["value"] is not None,
-        })
+        assertions.append(
+            {
+                "type": "extraction",
+                "description": f"Extracted {extraction['attr']} from {extraction['selector']}",
+                "actual": extraction["value"],
+                "passed": extraction["value"] is not None,
+            }
+        )
 
     return assertions
 
@@ -201,7 +220,7 @@ def _write_test_report(path: Path, test_result: dict):
         f.write(f"**Timestamp:** {test_result['timestamp']}\n\n")
 
         status = "PASSED" if test_result.get("passed") else "FAILED"
-        status_color = "green" if test_result.get("passed") else "red"
+        _status_color = "green" if test_result.get("passed") else "red"  # noqa: F841
         f.write(f"**Result:** {status}\n\n")
 
         f.write("## Assertions\n\n")

@@ -5,18 +5,19 @@ import logging
 from typing import Optional
 
 from models.base_model import AIModel
-from config import config
 
 logger = logging.getLogger(__name__)
 
 # Lazy import to avoid requiring zhipuai when not using GLM
 ZhipuAI = None
 
+
 def _get_zhipuai():
     global ZhipuAI
     if ZhipuAI is None:
         try:
             from zhipuai import ZhipuAI as _ZhipuAI
+
             ZhipuAI = _ZhipuAI
         except ImportError:
             raise ImportError(
@@ -30,6 +31,7 @@ class GLMModel(AIModel):
 
     def __init__(self, api_key: Optional[str] = None, model: str = "glm-4v-flash"):
         import os
+
         key = api_key or os.getenv("ZHIPUAI_API_KEY") or os.getenv("GLM_API_KEY")
         if not key:
             raise ValueError("ZHIPUAI_API_KEY or GLM_API_KEY not configured")
@@ -50,10 +52,10 @@ class GLMModel(AIModel):
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": image_url}},
-                        {"type": "text", "text": prompt}
-                    ]
+                        {"type": "text", "text": prompt},
+                    ],
                 }
-            ]
+            ],
         )
 
         return response.choices[0].message.content
@@ -64,8 +66,7 @@ class GLMModel(AIModel):
 Task: {prompt}"""
 
         response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": full_prompt}]
+            model=self.model, messages=[{"role": "user", "content": full_prompt}]
         )
 
         return response.choices[0].message.content
@@ -128,12 +129,12 @@ Rules:
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": image_url}},
-                        {"type": "text", "text": decision_prompt}
-                    ]
+                        {"type": "text", "text": decision_prompt},
+                    ],
                 }
             ],
             temperature=0.2,
-            max_tokens=128
+            max_tokens=128,
         )
 
         return response.choices[0].message.content.strip()

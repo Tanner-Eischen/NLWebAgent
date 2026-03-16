@@ -9,8 +9,6 @@ from typing import Dict, Any, Optional
 from cli.assertions.parser import (
     ParsedAssertion,
     AssertionType,
-    ComparisonOperator,
-    StringOperator,
 )
 
 

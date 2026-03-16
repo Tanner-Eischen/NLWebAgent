@@ -49,6 +49,7 @@ class ModelSelector:
         """Initialize Ollama model."""
         try:
             from models.ollama_model import OllamaModel
+
             self.ollama = OllamaModel(config.model.local_model_name)
             logger.info(f"Ollama initialized: {config.model.local_model_name}")
         except Exception as e:
@@ -60,6 +61,7 @@ class ModelSelector:
         """Initialize OpenAI model."""
         try:
             from models.openai_model import OpenAIModel
+
             self.openai = OpenAIModel(model=config.model.openai_model_name)
             logger.info(f"OpenAI initialized: {config.model.openai_model_name}")
         except Exception as e:
@@ -71,6 +73,7 @@ class ModelSelector:
         """Initialize GLM model."""
         try:
             from models.glm_model import GLMModel
+
             self.glm = GLMModel(model=config.model.glm_model_name)
             logger.info(f"GLM initialized: {config.model.glm_model_name}")
         except Exception as e:
@@ -82,6 +85,7 @@ class ModelSelector:
         """Initialize Claude model."""
         try:
             from models.claude_model import ClaudeModel
+
             self.claude = ClaudeModel(base_url=config.model.claude_base_url)
             logger.info("Claude initialized")
         except Exception as e:

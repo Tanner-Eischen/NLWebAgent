@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, Union, Literal
+from typing import Union, Literal
 
 import re
 
@@ -269,7 +269,9 @@ def parse_action(raw: str) -> Action:
             x_val = _normalize_field(parts[1], "x")
             y_val = _normalize_field(parts[2], "y")
             text_value = _normalize_field(parts[3], "text", strip_outer_quotes=True)
-            return TypeAtAction(type=ActionType.TYPE_AT, x=x_val, y=y_val, text=text_value)
+            return TypeAtAction(
+                type=ActionType.TYPE_AT, x=x_val, y=y_val, text=text_value
+            )
         if upper.startswith("NAVIGATE:"):
             url = _normalize_field(text.split(":", 1)[1], "url")
             return NavigateAction(type=ActionType.NAVIGATE, url=url)
@@ -279,7 +281,9 @@ def parse_action(raw: str) -> Action:
                 raise ActionParseError("SCROLL requires direction and amount")
             direction = _normalize_field(parts[1], "direction")
             amount = _normalize_field(parts[2], "amount")
-            return ScrollAction(type=ActionType.SCROLL, direction=direction, amount=amount)
+            return ScrollAction(
+                type=ActionType.SCROLL, direction=direction, amount=amount
+            )
         if upper.startswith("WAIT:"):
             seconds = _normalize_field(text.split(":", 1)[1], "seconds")
             return WaitAction(type=ActionType.WAIT, seconds=seconds)
@@ -334,7 +338,9 @@ def parse_action_lenient(raw: str) -> Action:
             x_val = _normalize_field(parts[1], "x")
             y_val = _normalize_field(parts[2], "y")
             text_value = _normalize_field(parts[3], "text", strip_outer_quotes=True)
-            return TypeAtAction(type=ActionType.TYPE_AT, x=x_val, y=y_val, text=text_value)
+            return TypeAtAction(
+                type=ActionType.TYPE_AT, x=x_val, y=y_val, text=text_value
+            )
         if upper.startswith("NAVIGATE:"):
             url = _normalize_field(text.split(":", 1)[1], "url")
             return NavigateAction(type=ActionType.NAVIGATE, url=url)
@@ -344,7 +350,9 @@ def parse_action_lenient(raw: str) -> Action:
                 raise ActionParseError("SCROLL requires direction and amount")
             direction = _normalize_field(parts[1], "direction")
             amount = _normalize_field(parts[2], "amount")
-            return ScrollAction(type=ActionType.SCROLL, direction=direction, amount=amount)
+            return ScrollAction(
+                type=ActionType.SCROLL, direction=direction, amount=amount
+            )
         if upper.startswith("WAIT:"):
             seconds = _normalize_field(text.split(":", 1)[1], "seconds")
             return WaitAction(type=ActionType.WAIT, seconds=seconds)
@@ -366,7 +374,7 @@ def parse_action_lenient(raw: str) -> Action:
 
 def _strip_wrapped_quotes(value: str) -> str:
     if len(value) >= 2:
-        if value[0] == value[-1] and value[0] in {"\"", "'"}:
+        if value[0] == value[-1] and value[0] in {'"', "'"}:
             return value[1:-1]
     return value
 
@@ -447,9 +455,7 @@ def _extract_action_line(raw: str) -> str:
             action_lines.append(candidate)
 
     if len(action_lines) > 1:
-        raise ActionParseError(
-            "Multiple actions found; output exactly one action line"
-        )
+        raise ActionParseError("Multiple actions found; output exactly one action line")
     if len(action_lines) == 1:
         return action_lines[0]
 
@@ -640,7 +646,19 @@ def _is_ignorable_line(line: str) -> bool:
     ):
         if cleaned.endswith(".") or cleaned.endswith(":"):
             return True
-    if any(token in line for token in ("<css selector>", "<url>", "<pixels>", "<seconds>", "<attr>", "<x>", "<y>", "<text>")):
+    if any(
+        token in line
+        for token in (
+            "<css selector>",
+            "<url>",
+            "<pixels>",
+            "<seconds>",
+            "<attr>",
+            "<x>",
+            "<y>",
+            "<text>",
+        )
+    ):
         return True
     return False
 

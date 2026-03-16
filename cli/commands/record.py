@@ -9,7 +9,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -28,12 +28,24 @@ console = Console()
 @app.callback(invoke_without_command=True)
 def record(
     url: str = typer.Option(..., "--url", "-u", help="Starting URL for recording"),
-    task: Optional[str] = typer.Option(None, "--task", "-t", help="Task to execute during recording"),
-    output: Path = typer.Option(..., "--output", "-o", help="Output file for generated Playwright test"),
-    test_name: Optional[str] = typer.Option(None, "--name", "-n", help="Name for the generated test"),
-    max_steps: int = typer.Option(30, "--max-steps", "-m", help="Maximum number of steps to record"),
-    headless: bool = typer.Option(False, "--headless/-H", help="Run browser in headless mode"),
-    add_assertions: bool = typer.Option(True, "--assertions/--no-assertions", help="Add assertion suggestions"),
+    task: Optional[str] = typer.Option(
+        None, "--task", "-t", help="Task to execute during recording"
+    ),
+    output: Path = typer.Option(
+        ..., "--output", "-o", help="Output file for generated Playwright test"
+    ),
+    test_name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="Name for the generated test"
+    ),
+    max_steps: int = typer.Option(
+        30, "--max-steps", "-m", help="Maximum number of steps to record"
+    ),
+    headless: bool = typer.Option(
+        False, "--headless/-H", help="Run browser in headless mode"
+    ),
+    add_assertions: bool = typer.Option(
+        True, "--assertions/--no-assertions", help="Add assertion suggestions"
+    ),
 ):
     """
     Record a browser session and generate Playwright test code.
@@ -100,12 +112,16 @@ async def _record_async(
         else:
             # Manual recording mode - just navigate and wait for user
             await browser.navigate(url)
-            console.print("[yellow]Manual recording mode - press Ctrl+C to stop recording[/]")
+            console.print(
+                "[yellow]Manual recording mode - press Ctrl+C to stop recording[/]"
+            )
             # Record initial page state
-            recording["actions"].append({
-                "action": f"NAVIGATE:{url}",
-                "status": "success",
-            })
+            recording["actions"].append(
+                {
+                    "action": f"NAVIGATE:{url}",
+                    "status": "success",
+                }
+            )
             # Wait for user to finish
             try:
                 await asyncio.sleep(300)  # 5 minute timeout
@@ -167,6 +183,7 @@ def _generate_test_name(task: Optional[str], url: str) -> str:
     else:
         # Use URL domain
         from urllib.parse import urlparse
+
         domain = urlparse(url).netloc.replace(".", "_")
         return f"test_{domain}"
 
@@ -178,7 +195,9 @@ def _print_recording_summary(recording: dict):
     table.add_column("Value", style="green")
 
     table.add_row("URL", recording.get("url", "N/A"))
-    table.add_row("Task", recording.get("task", "Manual recording") or "Manual recording")
+    table.add_row(
+        "Task", recording.get("task", "Manual recording") or "Manual recording"
+    )
     table.add_row("Actions Recorded", str(len(recording.get("actions", []))))
     table.add_row("Extractions", str(len(recording.get("extractions", []))))
 

@@ -9,7 +9,6 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -26,11 +25,21 @@ console = Console()
 @app.callback(invoke_without_command=True)
 def run(
     url: str = typer.Option(..., "--url", "-u", help="Starting URL for the task"),
-    task: str = typer.Option(..., "--task", "-t", help="Task description in natural language"),
-    output: Path = typer.Option("./output", "--output", "-o", help="Output directory for artifacts"),
-    max_steps: int = typer.Option(20, "--max-steps", "-m", help="Maximum number of steps"),
-    headless: bool = typer.Option(False, "--headless", "-h", help="Run browser in headless mode"),
-    record_video: bool = typer.Option(True, "--video/--no-video", help="Record video of session"),
+    task: str = typer.Option(
+        ..., "--task", "-t", help="Task description in natural language"
+    ),
+    output: Path = typer.Option(
+        "./output", "--output", "-o", help="Output directory for artifacts"
+    ),
+    max_steps: int = typer.Option(
+        20, "--max-steps", "-m", help="Maximum number of steps"
+    ),
+    headless: bool = typer.Option(
+        False, "--headless", "-h", help="Run browser in headless mode"
+    ),
+    record_video: bool = typer.Option(
+        True, "--video/--no-video", help="Record video of session"
+    ),
     verbose: bool = typer.Option(True, "--verbose/-q", help="Verbose output"),
 ):
     """
@@ -39,7 +48,9 @@ def run(
     Example:
         nlwa run --url https://example.com --task "Click the login button"
     """
-    asyncio.run(_run_async(url, task, output, max_steps, headless, record_video, verbose))
+    asyncio.run(
+        _run_async(url, task, output, max_steps, headless, record_video, verbose)
+    )
 
 
 async def _run_async(
@@ -98,7 +109,7 @@ async def _run_async(
 
         # Return appropriate exit code
         if result["status"] == "success":
-            console.print(f"\n[bold green]Task completed successfully![/]")
+            console.print("\n[bold green]Task completed successfully![/]")
             raise typer.Exit(0)
         else:
             console.print(f"\n[bold red]Task failed: {result['status']}[/]")
@@ -116,7 +127,7 @@ async def _run_async(
 def _write_summary(path: Path, result: dict, task: str, url: str):
     """Write a markdown summary of the task execution."""
     with open(path, "w") as f:
-        f.write(f"# Web Automation Summary\n\n")
+        f.write("# Web Automation Summary\n\n")
         f.write(f"**Task:** {task}\n\n")
         f.write(f"**URL:** {url}\n\n")
         f.write(f"**Status:** {result['status']}\n\n")
@@ -127,7 +138,9 @@ def _write_summary(path: Path, result: dict, task: str, url: str):
             for i, action in enumerate(result["actions"], 1):
                 status = action.get("status", "unknown")
                 status_emoji = "✓" if status == "success" else "✗"
-                f.write(f"{i}. [{status_emoji}] `{action.get('action', 'unknown')}` - {status}\n")
+                f.write(
+                    f"{i}. [{status_emoji}] `{action.get('action', 'unknown')}` - {status}\n"
+                )
 
         if result.get("extractions"):
             f.write("\n## Extractions\n\n")

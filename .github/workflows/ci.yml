@@ -58,10 +58,10 @@ jobs:
           pip install ruff
 
       - name: Run Ruff linter
-        run: ruff check . --ignore E501,W291,W293 || true
+        run: ruff check . --ignore E501,W291,W293
 
       - name: Run Ruff formatter check
-        run: ruff format --check . || true
+        run: ruff format --check .
 
   build:
     runs-on: ubuntu-latest

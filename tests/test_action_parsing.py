@@ -1,6 +1,11 @@
 import unittest
 
-from agent.actions import ActionParseError, ActionType, parse_action, parse_action_lenient
+from agent.actions import (
+    ActionParseError,
+    ActionType,
+    parse_action,
+    parse_action_lenient,
+)
 
 
 class ActionParsingTests(unittest.TestCase):
@@ -41,7 +46,7 @@ class ActionParsingTests(unittest.TestCase):
         action = parse_action('NAVIGATE:url="https://example.com"')
         self.assertEqual(action.url, "https://example.com")
 
-        action = parse_action('EXTRACT:selector=\"#title\":attr=\"href\"')
+        action = parse_action('EXTRACT:selector="#title":attr="href"')
         self.assertEqual(action.selector, "#title")
         self.assertEqual(action.attr, "href")
 
@@ -49,7 +54,7 @@ class ActionParsingTests(unittest.TestCase):
         self.assertEqual(action.x, 120)
         self.assertEqual(action.y, 240)
 
-        action = parse_action('TYPE_AT:x=10:y=20:text=\"hello\"')
+        action = parse_action('TYPE_AT:x=10:y=20:text="hello"')
         self.assertEqual(action.x, 10)
         self.assertEqual(action.y, 20)
         self.assertEqual(action.text, "hello")

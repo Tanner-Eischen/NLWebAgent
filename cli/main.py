@@ -5,7 +5,6 @@ A CLI tool for web automation using natural language instructions.
 Powered by Playwright with AI-guided actions.
 """
 import typer
-from typing import Optional
 
 app = typer.Typer(
     name="nlwa",
@@ -27,7 +26,7 @@ def main(
 
 
 # Import and register commands
-from cli.commands import run, test as test_cmd, assert_cmd, record
+from cli.commands import run, test as test_cmd, assert_cmd, record  # noqa: E402
 
 app.add_typer(run.app, name="run")
 app.add_typer(test_cmd.app, name="test")

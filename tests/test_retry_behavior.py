@@ -11,12 +11,12 @@ try:
 except Exception as exc:
     raise unittest.SkipTest(f"playwright not installed: {exc}")
 
-from config import config
+from config import config  # noqa: E402
 
 config.reload()
 
-from agent.orchestrator import WebAutomationAgent
-from browser.playwright_agent import BrowserController
+from agent.orchestrator import WebAutomationAgent  # noqa: E402
+from browser.playwright_agent import BrowserController  # noqa: E402
 
 
 class FakeModelSelector:
@@ -26,7 +26,7 @@ class FakeModelSelector:
 
     async def decide_next_action_with_fallback(
         self, screenshot_path, task, history=None, error_hint=None, dom_context=None
- ):
+    ):
         self.calls.append({"history": history, "error_hint": error_hint})
         if self.actions:
             return self.actions.pop(0), "fake"
@@ -43,7 +43,9 @@ class RetryBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
         model = FakeModelSelector(["CLICK:#missing", "DONE"])
         browser = BrowserController("retry_behavior")
-        agent = WebAutomationAgent("retry_behavior", model_selector=model, browser=browser)
+        agent = WebAutomationAgent(
+            "retry_behavior", model_selector=model, browser=browser
+        )
 
         await agent.initialize()
         result = await agent.execute_task(

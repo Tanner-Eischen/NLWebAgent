@@ -142,7 +142,9 @@ def _try_parse_numeric(assertion: str) -> Optional[ParsedAssertion]:
 
 def _try_parse_string(assertion: str) -> Optional[ParsedAssertion]:
     """Try to parse as string matching."""
-    pattern = r"^(\w+)\s+(contains|starts?\s*with|ends?\s*with|equals|==)\s+['\"](.+?)['\"]$"
+    pattern = (
+        r"^(\w+)\s+(contains|starts?\s*with|ends?\s*with|equals|==)\s+['\"](.+?)['\"]$"
+    )
     match = re.match(pattern, assertion, re.IGNORECASE)
     if match:
         operator = match.group(2).lower().replace(" ", "_")
