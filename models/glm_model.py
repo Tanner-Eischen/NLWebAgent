@@ -1,6 +1,7 @@
 """
 GLM-4V model implementation (zhipuai/GLM).
 """
+
 import logging
 from typing import Optional
 

@@ -1,6 +1,6 @@
+import base64
 from abc import ABC, abstractmethod
 from pathlib import Path
-import base64
 
 
 class AIModel(ABC):

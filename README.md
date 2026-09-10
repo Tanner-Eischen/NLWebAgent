@@ -1,6 +1,8 @@
 # NLWebAgent - Natural Language Web Testing Agent
 
-A powerful web automation and testing tool that lets you control browsers using natural language. Powered by Playwright with AI-guided actions.
+[![CI](https://github.com/Tanner-Eischen/NLWebAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Tanner-Eischen/NLWebAgent/actions/workflows/ci.yml)
+
+NLWebAgent converts natural-language test instructions into Playwright actions. It can navigate pages, enter text, run semantic assertions, record sessions, and generate Playwright tests.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -203,6 +205,7 @@ from agent.orchestrator import WebAutomationAgent
 from models.model_selector import ModelSelector
 from browser.playwright_agent import BrowserController
 
+
 async def main():
     model_selector = ModelSelector()
     browser = BrowserController()
@@ -223,6 +226,7 @@ async def main():
     print(f"Steps: {result['steps_taken']}")
 
     await agent.close()
+
 
 asyncio.run(main())
 ```
@@ -249,7 +253,7 @@ When selector-based actions fail, the agent automatically:
 2. Uses vision model to find fallback coordinates
 3. Retries the action at the identified location
 
-This provides robustness against changing page layouts.
+The coordinate retry handles pages where a saved selector no longer resolves.
 
 ## Authentication
 
@@ -279,6 +283,8 @@ Browser state (cookies, localStorage) is automatically saved and reused:
 
 ## Testing
 
+CI runs the browser-backed test suites on Python 3.10, 3.11, and 3.12, checks Ruff lint and formatting, and builds the Python package. Install the development dependencies before running the same checks locally.
+
 ```bash
 # Run all tests
 python -m pytest tests/ -v
@@ -289,6 +295,13 @@ python -m pytest tests/test_fixture_workflows.py -v
 
 # Run with coverage
 python -m pytest tests/ --cov=agent --cov=browser --cov=cli
+
+# Check lint and formatting
+ruff check .
+ruff format --check .
+
+# Build the package
+python -m build
 ```
 
 ## Project Structure

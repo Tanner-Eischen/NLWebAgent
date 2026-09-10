@@ -3,9 +3,10 @@ Semantic assertion parser.
 
 Parses natural language assertion expressions into structured data.
 """
+
 import re
-from typing import Dict, Optional, Any
 from enum import Enum
+from typing import Any, Dict, Optional
 
 
 class AssertionType(str, Enum):

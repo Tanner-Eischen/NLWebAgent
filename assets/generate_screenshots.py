@@ -1,6 +1,8 @@
 """Generate terminal-style screenshots for documentation."""
-from PIL import Image, ImageDraw, ImageFont
+
 import os
+
+from PIL import Image, ImageDraw, ImageFont
 
 # Terminal colors (GitHub dark theme inspired)
 BG_COLOR = "#0d1117"

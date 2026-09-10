@@ -1,10 +1,11 @@
-import aiohttp
 import asyncio
 import logging
 from typing import Optional
 
-from models.base_model import AIModel
+import aiohttp
+
 from config import config
+from models.base_model import AIModel
 
 logger = logging.getLogger(__name__)
 

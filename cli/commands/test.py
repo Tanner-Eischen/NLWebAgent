@@ -5,6 +5,7 @@ Usage:
     nlwa test "Verify user can login" --url https://example.com
     nlwa test "Check search returns results" --url https://example.com --output ./test-results
 """
+
 import asyncio
 import json
 from datetime import datetime
@@ -13,12 +14,12 @@ from typing import List
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from agent.orchestrator import WebAutomationAgent
-from models.model_selector import ModelSelector
 from browser.playwright_agent import BrowserController
+from models.model_selector import ModelSelector
 
 app = typer.Typer(help="Run natural language tests")
 console = Console()

@@ -1,9 +1,9 @@
 """Model implementations for web automation agent."""
 
 from models.base_model import AIModel
-from models.ollama_model import OllamaModel
 from models.claude_model import ClaudeModel
 from models.model_selector import ModelSelector
+from models.ollama_model import OllamaModel
 
 
 # Lazy imports for optional dependencies

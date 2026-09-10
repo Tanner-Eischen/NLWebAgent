@@ -3,8 +3,8 @@ from typing import Optional
 
 from anthropic import Anthropic, AsyncAnthropic
 
-from models.base_model import AIModel
 from config import config
+from models.base_model import AIModel
 
 logger = logging.getLogger(__name__)
 

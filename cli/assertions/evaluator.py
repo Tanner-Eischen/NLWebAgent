@@ -3,12 +3,13 @@ Semantic assertion evaluator.
 
 Evaluates parsed assertions against a web page.
 """
+
 import re
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from cli.assertions.parser import (
-    ParsedAssertion,
     AssertionType,
+    ParsedAssertion,
 )
 
 

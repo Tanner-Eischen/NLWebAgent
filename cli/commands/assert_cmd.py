@@ -6,6 +6,7 @@ Usage:
     nlwa assert "title contains 'Welcome'" --url https://example.com
     nlwa assert "button is visible" --selector "#submit" --url https://example.com
 """
+
 import asyncio
 import json
 from pathlib import Path
@@ -16,8 +17,8 @@ from rich.console import Console
 from rich.table import Table
 
 from browser.playwright_agent import BrowserController
-from cli.assertions.parser import parse_assertion
 from cli.assertions.evaluator import AssertionEvaluator
+from cli.assertions.parser import parse_assertion
 
 app = typer.Typer(help="Run semantic assertions on web pages")
 console = Console()

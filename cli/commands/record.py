@@ -5,6 +5,7 @@ Usage:
     nlwa record --url https://example.com --output test.spec.ts
     nlwa record --url https://example.com --task "Complete checkout" --output checkout.spec.ts
 """
+
 import asyncio
 import json
 from datetime import datetime
@@ -13,13 +14,13 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from agent.orchestrator import WebAutomationAgent
-from models.model_selector import ModelSelector
 from browser.playwright_agent import BrowserController
 from cli.codegen.generator import generate_playwright_test
+from models.model_selector import ModelSelector
 
 app = typer.Typer(help="Record session and generate Playwright test code")
 console = Console()

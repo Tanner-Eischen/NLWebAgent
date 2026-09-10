@@ -1,7 +1,6 @@
-from enum import Enum
-from typing import Union, Literal
-
 import re
+from enum import Enum
+from typing import Literal, Union
 
 from pydantic import BaseModel, ValidationError, field_validator
 

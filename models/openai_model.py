@@ -1,6 +1,7 @@
 """
 OpenAI GPT-4 Vision model implementation.
 """
+
 import logging
 from typing import Optional
 

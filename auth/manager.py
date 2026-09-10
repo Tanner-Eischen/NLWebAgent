@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
-from auth.policies import LoginPolicy, POLICIES
+from auth.policies import POLICIES, LoginPolicy
 from browser.playwright_agent import BrowserController
 from config import config
 

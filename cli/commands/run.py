@@ -5,6 +5,7 @@ Usage:
     nlwa run --url https://example.com --task "Click the login button"
     nlwa run --url https://example.com --task "Search for 'python'" --output ./output
 """
+
 import asyncio
 import json
 from datetime import datetime
@@ -15,8 +16,8 @@ from rich.console import Console
 from rich.table import Table
 
 from agent.orchestrator import WebAutomationAgent
-from models.model_selector import ModelSelector
 from browser.playwright_agent import BrowserController
+from models.model_selector import ModelSelector
 
 app = typer.Typer(help="Execute web automation task")
 console = Console()

@@ -3,8 +3,9 @@ Playwright test code generator.
 
 Converts recorded browser sessions into Playwright TypeScript test code.
 """
-from typing import Dict, List, Optional, Any
+
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 def generate_playwright_test(
