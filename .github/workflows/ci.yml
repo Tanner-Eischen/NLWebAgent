@@ -29,18 +29,11 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install chromium
 
-      - name: Run action parsing tests
-        run: python -m pytest tests/test_action_parsing.py -v
+      - name: Run browser-free regressions
+        run: python -m pytest tests/ -m "not browser" -v
 
-      - name: Run artifact tests
-        run: python -m pytest tests/test_recording_artifacts.py -v
-
-      - name: Run fixture workflow tests
-        run: python -m pytest tests/test_fixture_workflows.py -v --tb=short
-        env:
-          HEADLESS: "true"
-          USE_LOCAL_MODEL: "false"
-          FALLBACK_TO_CLAUDE: "false"
+      - name: Run browser fixtures and retries
+        run: python -m pytest tests/ -m browser --run-browser -v
 
   lint:
     runs-on: ubuntu-latest

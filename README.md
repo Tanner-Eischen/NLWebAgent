@@ -1,337 +1,252 @@
-# NLWebAgent - Natural Language Web Testing Agent
+# NLWebAgent — Natural Language Web Testing Agent
 
 [![CI](https://github.com/Tanner-Eischen/NLWebAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Tanner-Eischen/NLWebAgent/actions/workflows/ci.yml)
 
-NLWebAgent converts natural-language test instructions into Playwright actions. It can navigate pages, enter text, run semantic assertions, record sessions, and generate Playwright tests.
+NLWebAgent uses screenshot and DOM context to turn natural-language instructions into Playwright actions. Explicit assertions check the final page independently of the model's completion signal. Automated sessions can be exported as Playwright TypeScript tests.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           NLWebAgent Workflow                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐         │
-│   │  You:    │    │  Agent:  │    │  Vision: │    │ Output:  │         │
-│   │ "Login   │───▶│ Parse    │───▶│ See page │───▶│ Actions  │         │
-│   │  and     │    │ intent   │    │ & decide │    │ executed │         │
-│   │ search"  │    │          │    │          │    │          │         │
-│   └──────────┘    └──────────┘    └──────────┘    └──────────┘         │
-│                                                         │               │
-│                                                         ▼               │
-│                                              ┌─────────────────┐        │
-│                                              │ ✅ Test results │        │
-│                                              │ 📹 Video replay │        │
-│                                              │ 📝 Playwright   │        │
-│                                              │    codegen      │        │
-│                                              └─────────────────┘        │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+This is an alpha project. The regression suite covers control flow, data handling and generated source using mocks; it does not establish live model accuracy or reliability on arbitrary websites.
 
-## Features
+## Capabilities
 
-| Feature | Description | CLI Example |
-|---------|-------------|-------------|
-| **Natural Language Testing** | Write tests in plain English | `nlwa test "Verify login shows dashboard"` |
-| **Semantic Assertions** | Vision + extraction for semantic checks | `nlwa assert "price < 50" --url ...` |
-| **Record → Codegen** | Record session, output Playwright test code | `nlwa record --url ... --output test.spec.ts` |
-| **Self-Healing Selectors** | Auto-fallback to coordinates when selectors fail | Built-in (no CLI flag needed) |
+| Capability | Behavior |
+| --- | --- |
+| Automation | Navigate, click, type, scroll, wait and extract with selector or coordinate actions |
+| Verified tests | Execute a task, then evaluate repeatable `--expect` assertions against the final page |
+| Page assertions | Numeric/string comparisons, visibility, existence and counts using a fixed grammar and DOM queries |
+| Selector recovery | Ask a vision provider for coordinates when a selector cannot resolve |
+| Automated recording | Save execution artifacts and export successful browser events to TypeScript |
+| Providers | Ollama, Claude, and optional OpenAI/GLM adapters; optional Claude fallback |
+| Authentication | Explicit domain policies, environment credentials, authenticated-page postconditions and storage reuse |
+
+Assertions are deterministic DOM checks, not vision-based semantic judgments. Manual interaction recording is not implemented.
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.10+
-- [Ollama](https://ollama.ai/) (optional, for local model)
-- [Playwright](https://playwright.dev/python/) browsers
-
-### Setup
+Use Python 3.10 or later. Ollama is optional for local inference; browser execution requires Playwright's Chromium installation.
 
 ```bash
-# Clone the repository
-git clone https://github.com/tanner-eischen/nlwebagent.git
-cd nlwebagent
-
-# Create virtual environment
+git clone https://github.com/Tanner-Eischen/NLWebAgent.git
+cd NLWebAgent
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Install Playwright browsers
+source .venv/bin/activate  # PowerShell: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]" build
 playwright install chromium
-
-# Download local model (optional)
-ollama pull llama3.2-vision:11b
 ```
 
-### Configuration
-
-Create a `.env` file:
+Install the optional SDK for your chosen provider:
 
 ```bash
-cp .env.example .env
+pip install -e ".[openai]"
+pip install -e ".[glm]"
+# Or install both alongside development dependencies:
+pip install -e ".[dev,openai,glm]"
 ```
 
-Key configuration options:
+The base installation includes the Ollama HTTP adapter and Anthropic SDK. Installing an adapter does not supply credentials or verify access to a particular hosted model.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `USE_LOCAL_MODEL` | `true` | Use Ollama for local inference |
-| `FALLBACK_TO_CLAUDE` | `true` | Fall back to Claude if local fails |
-| `CLAUDE_API_KEY` | - | Anthropic API key for Claude |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `HEADLESS` | `false` | Run browser in headless mode |
-| `RECORD_VIDEO` | `true` | Record session videos |
-| `ACTION_STRATEGY` | `selector_first` | Prefer selectors over coordinates |
+## Configuration
 
-## CLI Usage
+Copy `.env.example` to `.env` and configure the provider you intend to use. For local inference:
 
-### Run Automation Task
+```dotenv
+MODEL_PROVIDER=ollama
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3.2-vision:11b
+FALLBACK_TO_CLAUDE=false
+```
 
-Execute a web automation task using natural language:
+Download the configured model separately, for example `ollama pull llama3.2-vision:11b`.
+
+| Setting | Purpose |
+| --- | --- |
+| `MODEL_PROVIDER` | Preferred explicit choice: `ollama`, `claude`, `openai` or `glm` |
+| `USE_LOCAL_MODEL` | Legacy fallback when `MODEL_PROVIDER` is absent: `true` selects Ollama, `false` selects Claude |
+| `CLAUDE_API_KEY` | Required for the Claude provider or enabled Claude fallback |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Credentials and model for the optional OpenAI provider |
+| `ZHIPUAI_API_KEY`, `GLM_MODEL` | Credentials and model for the optional GLM provider |
+| `FALLBACK_TO_CLAUDE` | Defaults to `false`; explicitly enable only when Claude fallback is wanted |
+| `MODEL_TIMEOUT_SECONDS` | Deadline per provider call; an enabled fallback receives a separate deadline |
+| `HEADLESS`, `RECORD_VIDEO` | Browser defaults; CLI browser options override them for that command |
+| `REUSE_STORAGE_STATE`, `STORAGE_STATE_PATH` | Load/save browser state; loading state does not itself establish authentication |
+| `AUTO_CHECKBOXES` | Defaults to `false`; prefer explicit task-directed checkbox actions |
+| `PAUSE_ON_CAPTCHA` | Stop execution with a paused status when CAPTCHA detection triggers; no automatic resume workflow |
+
+To enable remote fallback, set `FALLBACK_TO_CLAUDE=true` and provide a valid `CLAUDE_API_KEY`. Fallback can send the screenshot, task and DOM context to Claude. Provider names, credentials and SDK availability are validated before browser initialization; configuration errors do not silently switch providers.
+
+## CLI usage
+
+### Run an automation task
 
 ```bash
 nlwa run --url https://example.com --task "Click the login button"
-nlwa run --url https://shop.example.com --task "Add item to cart" --output ./results
+nlwa run --url https://shop.example.com --task "Add item to cart" --output ./results --headless --no-video
 ```
 
-Options:
-- `--url, -u`: Starting URL (required)
-- `--task, -t`: Task description in natural language (required)
-- `--output, -o`: Output directory for artifacts (default: ./output)
-- `--max-steps, -m`: Maximum number of steps (default: 20)
-- `--headless, -h`: Run browser in headless mode
+`run` reports whether the agent completed its action sequence. A model's `DONE` does not establish that a business outcome was verified. Use `test` with explicit expectations when the result will be used as a test verdict.
 
-### Natural Language Testing
+Common options are `--url`, `--task`, `--output` and `--max-steps`. All commands support `--headless/--headed`; `run` and `record` also support `--video/--no-video`. Omitting browser flags preserves the configured defaults.
 
-Write tests in plain English:
+### Verify a task's final state
 
 ```bash
-nlwa test "Verify user can login" --url https://example.com/login
-nlwa test "Check search returns results" --url https://example.com --output ./test-results
+nlwa test "Log in and open the dashboard" --url https://example.com/login --expect "#dashboard is visible"
+nlwa test "Search for 'python'" --url https://example.com --expect "count(.result) >= 1" --expect "url contains 'search'" --output ./test-results
 ```
 
-The agent will:
-1. Parse your test description
-2. Execute actions to complete the test
-3. Verify expected outcomes
-4. Generate a test report with pass/fail status
+Each `--expect` uses the assertion grammar below. A test passes only when the agent completes successfully and every supplied final-page assertion passes. Reports contain the observed values and finalized artifact paths. `--fail-fast` stops evaluating expectations after the first failure.
 
-### Semantic Assertions
+Without `--expect`, the task can execute, but the test result is **unverified** and the command exits nonzero. Unsupported assertion expressions and page-query failures also fail rather than becoming passing negative checks. Successful verified tests exit 0; failed or unverified tests exit 1.
 
-Run assertions against web pages:
+### Assert against a page
 
 ```bash
-# Numeric comparisons
 nlwa assert "price < 50" --url https://shop.example.com/product/123
-nlwa assert "count >= 5" --url https://example.com/items
-
-# String matching
 nlwa assert "title contains 'Welcome'" --url https://example.com
 nlwa assert "url starts with 'https'" --url https://example.com
-
-# Visibility checks
-nlwa assert "button is visible" --url https://example.com
 nlwa assert "form is hidden" --selector "#login-form" --url https://example.com
+nlwa assert "count(.item) >= 3" --url https://example.com/items
+nlwa assert "#confirmation exists" --url https://example.com
 ```
 
-Supported assertion types:
-- Numeric: `<`, `<=`, `>`, `>=`, `==`
-- String: `contains`, `starts with`, `ends with`, `equals`
-- Visibility: `is visible`, `is hidden`
-- Count: `count(.item) >= 3`
+Supported forms:
 
-### Record → Codegen
+- Numeric comparisons: `<`, `<=`, `>`, `>=`, `==`, `=`.
+- String comparisons: `contains`, `starts with`, `ends with`, `equals`.
+- Visibility: `<element or selector> is visible` or `is hidden`.
+- Counts: `count(<selector>) >= 3`.
+- Existence: `<element or selector> exists`.
 
-Record a session and generate Playwright test code:
+`--selector` overrides the target query. Numeric values support signed numbers, optional currency symbols, decimal points and comma thousands groups, such as `-$1,234.50`. Ambiguous ranges and decimal-comma formats are rejected. Use a selector targeting only the intended numeric value.
+
+### Record an automated session and export it
 
 ```bash
-nlwa record --url https://example.com --output test.spec.ts
-nlwa record --url https://example.com --task "Complete checkout" --output checkout.spec.ts
+nlwa record --url https://example.com --task "Search for 'test'" --output search.spec.ts
 ```
 
-The generated test file includes:
-- Full Playwright TypeScript code
-- All recorded actions converted to Playwright commands
-- Assertion suggestions based on extractions
-- Comments for any actions that need manual review
+`--task` is required. Calling `record` without it fails before creating a browser or model. There is no manual interaction recorder. Exported tests use the fixed name `test_recorded` unless an explicit `--name` is supplied; names are not derived from task text.
 
-## Show Me The Output
+Exports prefer successful executed browser events over proposed model actions, preserving resolved targets and coordinate units. Generated source requires the usual `@playwright/test` setup in the destination JavaScript/TypeScript project. Review the generated test and add explicit outcome assertions: extraction suggestions are comments and exporting a session is not independent verification of its intended result.
 
-### CLI Overview
+Typed values are redacted in saved recordings. When no explicit environment reference was used, the export reads a required variable such as `NLWA_INPUT_2`. The number comes from the executed event's position, including navigation events; consult the generated file for the exact names. Missing values fail replay instead of typing a redaction placeholder.
 
-![CLI Overview](assets/cli-overview.png)
+## Secrets and authentication
 
-### Example: Running a Test
+Use runtime references such as `${ENV:EXAMPLE_SITE_PASSWORD}` instead of literal secrets in tasks/actions. Keep the reference literal when invoking your shell; both PowerShell and Bash preserve it inside single quotes:
 
-![Test Run Example](assets/test-run-example.png)
+```bash
+nlwa run --url https://example.com/login --task 'Fill the password with ${ENV:EXAMPLE_SITE_PASSWORD} and submit'
+```
 
-### Example: Record → Codegen
+The environment value is resolved immediately before execution, registered for redaction, and represented by its reference in text artifacts. Explicit environment references are preserved in exported tests. Arbitrary typed values are redacted and require replay inputs as described above.
 
-![Codegen Example](assets/codegen-example.png)
+Text redaction does not sanitize screenshots, video, cookies or local storage. Treat these artifacts as sensitive and retain them only as needed.
 
-### Example: Semantic Assertions
+### Login policies
 
-![Assertion Example](assets/assertion-example.png)
+`auth/policies.py` starts with an empty `POLICIES` mapping. Its `EXAMPLE_POLICY` is an inactive sample. Configure only your intended targets using `LoginPolicy` objects, for example:
 
-### Example: Session Transcript
+```python
+from auth.policies import LoginPolicy
 
-```json
-{
-  "session_id": "20240315_143022",
-  "task": "Verify login shows dashboard",
-  "status": "success",
-  "steps_taken": 5,
-  "actions": [
-    {"step": 1, "action": "TYPE:#email:test@example.com", "model": "llama"},
-    {"step": 2, "action": "TYPE:#password:********", "model": "llama"},
-    {"step": 3, "action": "CLICK:button[type='submit']", "model": "llama"},
-    {"step": 4, "action": "EXTRACT:h1.dashboard-title", "result": "Welcome Back"},
-    {"step": 5, "action": "DONE", "model": "llama"}
-  ],
-  "artifacts": {
-    "video": "./recordings/videos/20240315_143022.webm",
-    "transcript": "./recordings/transcripts/20240315_143022_transcript.json",
-    "screenshots": 5
-  }
+POLICIES = {
+    "example.com": LoginPolicy(
+        domain="example.com",
+        service="EXAMPLE_SITE",
+        login_url="https://example.com/login",
+        username_selector="#email",
+        password_selector="#password",
+        submit_selector="button[type='submit']",
+        post_login_selector="[data-testid='authenticated-user']",
+    ),
 }
 ```
 
-## Programmatic Usage
+This policy reads `EXAMPLE_SITE_USERNAME` and `EXAMPLE_SITE_PASSWORD` from the environment. Choose a post-login selector visible only after successful authentication; `body`, `html` and similarly generic selectors do not prove login and are rejected. The manager checks the policy domain and authenticated state, stops after failed navigation, and checks the login destination before entering credentials.
+
+When storage reuse is enabled, cookies/local storage are saved on close and loaded on later runs. Even an existing storage-state file must satisfy the authenticated-page postcondition before login can be skipped.
+
+## Programmatic usage
 
 ```python
 import asyncio
+
 from agent.orchestrator import WebAutomationAgent
-from models.model_selector import ModelSelector
 from browser.playwright_agent import BrowserController
+from models.model_selector import ModelSelector
 
 
 async def main():
-    model_selector = ModelSelector()
-    browser = BrowserController()
     agent = WebAutomationAgent(
-        model_selector=model_selector,
-        browser=browser,
+        model_selector=ModelSelector(),
+        browser=BrowserController(headless=True, record_video=False),
     )
-
-    await agent.initialize()
-
-    result = await agent.execute_task(
-        task_description="Search for 'python playwright'",
-        start_url="https://google.com",
-        max_steps=20,
-    )
-
-    print(f"Status: {result['status']}")
-    print(f"Steps: {result['steps_taken']}")
-
-    await agent.close()
+    try:
+        await agent.initialize()
+        result = await agent.execute_task(
+            task_description="Search for 'python playwright'",
+            start_url="https://example.com",
+            max_steps=20,
+        )
+    finally:
+        artifacts = await agent.close()
+    result.update(artifacts)
+    print(result["status"])
 
 
 asyncio.run(main())
 ```
 
-## Action Types
+Use `AssertionEvaluator` against the final page before closing it when programmatic callers require a verified outcome.
 
-| Action | Format | Description |
-|--------|--------|-------------|
-| CLICK | `CLICK:selector` | Click element by selector |
-| TYPE | `TYPE:selector:text` | Type text into element |
-| EXTRACT | `EXTRACT:selector:attr` | Extract value from element |
-| CLICK_AT | `CLICK_AT:x:y` | Click at coordinates (0-1 normalized) |
-| TYPE_AT | `TYPE_AT:x:y:text` | Type at coordinates |
-| NAVIGATE | `NAVIGATE:url` | Navigate to URL |
-| SCROLL | `SCROLL:direction:amount` | Scroll page |
-| WAIT | `WAIT:seconds` | Wait for duration |
-| DONE | `DONE` | Mark task complete |
-| ERROR | `ERROR:message` | Report error |
+## Actions
 
-## Self-Healing Selectors
+| Action | Text format |
+| --- | --- |
+| Click | `CLICK:<selector>` |
+| Type | `TYPE:<selector>:<text>` |
+| Extract | `EXTRACT:<selector>:<attribute>` |
+| Coordinate click | `CLICK_AT:<x>:<y>` |
+| Coordinate type | `TYPE_AT:<x>:<y>:<text>` |
+| Navigate | `NAVIGATE:<url>` |
+| Scroll | `SCROLL:<direction>:<amount>` |
+| Wait | `WAIT:<seconds>` |
+| Finish actions | `DONE` |
+| Report error | `ERROR:<message>` |
 
-When selector-based actions fail, the agent automatically:
-1. Detects selector errors
-2. Uses vision model to find fallback coordinates
-3. Retries the action at the identified location
-
-The coordinate retry handles pages where a saved selector no longer resolves.
-
-## Authentication
-
-### Login Policies
-
-Define domain-specific login policies in `auth/policies.py`:
-
-```python
-LOGIN_POLICIES = {
-    "example.com": {
-        "login_url": "https://example.com/login",
-        "username_selector": "#email",
-        "password_selector": "#password",
-        "submit_selector": "button[type='submit']",
-        "credential_key": "EXAMPLE",
-    },
-}
-```
-
-### Storage State
-
-Browser state (cookies, localStorage) is automatically saved and reused:
-
-- Saved to `STORAGE_STATE_PATH` on session close
-- Reused when `REUSE_STORAGE_STATE=true`
-- Avoids repeated logins during development
+Coordinates in the 0–1 interval use viewport proportions; exported browser events preserve their resolved pixel coordinates. Selector recovery is an attempt based on model output, not a guarantee that the recovered target is correct.
 
 ## Testing
 
-CI runs the browser-backed test suites on Python 3.10, 3.11, and 3.12, checks Ruff lint and formatting, and builds the Python package. Install the development dependencies before running the same checks locally.
+Default test execution runs browser-free regressions and skips browser-backed suites. The former use fake pages and providers, so they need neither a running browser nor paid model inference:
 
 ```bash
-# Run all tests
 python -m pytest tests/ -v
-
-# Run specific test categories
-python -m pytest tests/test_action_parsing.py -v
-python -m pytest tests/test_fixture_workflows.py -v
-
-# Run with coverage
-python -m pytest tests/ --cov=agent --cov=browser --cov=cli
-
-# Check lint and formatting
 ruff check .
 ruff format --check .
-
-# Build the package
 python -m build
 ```
 
-## Project Structure
+Browser-backed fixture suites require explicit opt-in and installed Chromium:
 
+```bash
+playwright install chromium
+python -m pytest tests/ --run-browser -v
 ```
-nlwebagent/
-├── agent/
-│   ├── actions.py        # Action types and parsing
-│   └── orchestrator.py   # Main agent logic
-├── browser/
-│   └── playwright_agent.py  # Playwright browser controller
-├── models/
-│   ├── base_model.py     # AI model interface
-│   ├── ollama_model.py   # Ollama integration
-│   ├── claude_model.py   # Claude integration
-│   └── model_selector.py # Model fallback logic
-├── auth/
-│   ├── manager.py        # Authentication manager
-│   └── policies.py       # Login policies
-├── cli/
-│   ├── main.py           # CLI entry point
-│   ├── commands/         # CLI commands
-│   ├── codegen/          # Playwright code generator
-│   └── assertions/       # Assertion parser/evaluator
-├── tests/
-│   ├── fixtures/         # HTML test fixtures
-│   └── test_*.py         # Test files
-└── config.py             # Configuration
-```
+
+CI runs the full suite with that opt-in on Python 3.10, 3.11 and 3.12, checks lint/formatting and builds the package. Browser tests use deterministic fake model responses; they do not establish live provider performance. Provider/account compatibility and end-to-end task accuracy require separate evaluation.
+
+## Project structure
+
+- `agent/`: action parsing and orchestration.
+- `browser/`: Playwright controller and execution events.
+- `models/`: provider adapters, deadlines and fallback.
+- `auth/`: login policies, runtime secret references and text redaction.
+- `cli/`: commands, assertion parser/evaluator and TypeScript export.
+- `tests/`: browser-free regressions and opt-in browser fixtures.
+- `config.py`: configuration and validation.
+- `docs/audits/`: historical audit evidence and remediation notes.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE).

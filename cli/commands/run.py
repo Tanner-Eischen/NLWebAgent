@@ -10,16 +10,21 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from agent.orchestrator import WebAutomationAgent
+from auth.redaction import SecretRedactor
 from browser.playwright_agent import BrowserController
 from models.model_selector import ModelSelector
 
-app = typer.Typer(help="Execute web automation task")
+app = typer.Typer(
+    context_settings={"allow_interspersed_args": True},
+    help="Execute web automation task",
+)
 console = Console()
 
 
@@ -35,11 +40,14 @@ def run(
     max_steps: int = typer.Option(
         20, "--max-steps", "-m", help="Maximum number of steps"
     ),
-    headless: bool = typer.Option(
-        False, "--headless", "-h", help="Run browser in headless mode"
+    headless: Optional[bool] = typer.Option(
+        None,
+        "--headless/--headed",
+        "-h/-H",
+        help="Override configured browser display mode",
     ),
-    record_video: bool = typer.Option(
-        True, "--video/--no-video", help="Record video of session"
+    record_video: Optional[bool] = typer.Option(
+        None, "--video/--no-video", help="Override configured video recording"
     ),
     verbose: bool = typer.Option(True, "--verbose/-q", help="Verbose output"),
 ):
@@ -59,75 +67,57 @@ async def _run_async(
     task: str,
     output: Path,
     max_steps: int,
-    headless: bool,
-    record_video: bool,
+    headless: Optional[bool],
+    record_video: Optional[bool],
     verbose: bool,
 ):
-    """Async implementation of run command."""
-    import os
-
-    # Override config via environment variables
-    os.environ["HEADLESS"] = str(headless).lower()
-    os.environ["RECORD_VIDEO"] = str(record_video).lower()
-
-    # Create output directory
-    output.mkdir(parents=True, exist_ok=True)
-
-    # Initialize components
-    console.print(f"[bold blue]Starting task:[/] {task}")
-    console.print(f"[dim]URL: {url}[/dim]")
-
-    model_selector = ModelSelector()
-    browser = BrowserController()
-    agent = WebAutomationAgent(
-        model_selector=model_selector,
-        browser=browser,
-    )
-
+    """Execute a task, finalize artifacts, then persist the completed result."""
+    redactor = SecretRedactor()
     try:
-        await agent.initialize()
+        output.mkdir(parents=True, exist_ok=True)
+        console.print("[bold blue]Starting task[/]")
+        model_selector = ModelSelector()
+        browser = BrowserController(headless=headless, record_video=record_video)
+        agent = WebAutomationAgent(model_selector=model_selector, browser=browser)
+        redactor = agent.redactor
+        try:
+            await agent.initialize()
+            result = await agent.execute_task(
+                task_description=task, start_url=url, max_steps=max_steps
+            )
+        finally:
+            artifacts = await agent.close()
+        result.update(artifacts)
+        result = redactor.redact(result)
 
-        result = await agent.execute_task(
-            task_description=task,
-            start_url=url,
-            max_steps=max_steps,
-        )
-
-        # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Save transcript
         transcript_path = output / f"transcript_{timestamp}.json"
-        with open(transcript_path, "w") as f:
+        with open(transcript_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, default=str)
-
-        # Save summary
-        summary_path = output / f"summary_{timestamp}.md"
-        _write_summary(summary_path, result, task, url)
-
-        # Print results
+        _write_summary(
+            output / f"summary_{timestamp}.md",
+            result,
+            redactor.redact(task),
+            redactor.redact(url),
+        )
         _print_results(result, verbose)
-
-        # Return appropriate exit code
-        if result["status"] == "success":
-            console.print("\n[bold green]Task completed successfully![/]")
-            raise typer.Exit(0)
-        else:
-            console.print(f"\n[bold red]Task failed: {result['status']}[/]")
-            raise typer.Exit(1)
-
+        if verbose and result.get("videos"):
+            console.print(f"\n[dim]Video saved to: {result['videos'][0]}[/]")
+        exit_code = 0 if result["status"] == "success" else 1
+        console.print(
+            "\nTask completed successfully!"
+            if exit_code == 0
+            else f"\nTask failed: {result['status']}"
+        )
     except Exception as e:
-        console.print(f"[bold red]Error:[/] {e}")
-        raise typer.Exit(1)
-    finally:
-        artifacts = await agent.close()
-        if verbose and artifacts.get("videos"):
-            console.print(f"\n[dim]Video saved to: {artifacts['videos'][0]}[/]")
+        console.print(f"[bold red]Error:[/] {redactor.redact(str(e))}")
+        exit_code = 1
+    raise typer.Exit(exit_code)
 
 
 def _write_summary(path: Path, result: dict, task: str, url: str):
     """Write a markdown summary of the task execution."""
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("# Web Automation Summary\n\n")
         f.write(f"**Task:** {task}\n\n")
         f.write(f"**URL:** {url}\n\n")

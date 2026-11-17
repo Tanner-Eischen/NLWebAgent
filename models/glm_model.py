@@ -2,9 +2,11 @@
 GLM-4V model implementation (zhipuai/GLM).
 """
 
+import asyncio
 import logging
 from typing import Optional
 
+from config import config
 from models.base_model import AIModel
 
 logger = logging.getLogger(__name__)
@@ -21,9 +23,7 @@ def _get_zhipuai():
 
             ZhipuAI = _ZhipuAI
         except ImportError:
-            raise ImportError(
-                "zhipuai not installed. Install with: pip install zhipuai"
-            )
+            raise ImportError('GLM provider requires: pip install "nlwebagent[glm]"')
     return ZhipuAI
 
 
@@ -38,15 +38,21 @@ class GLMModel(AIModel):
             raise ValueError("ZHIPUAI_API_KEY or GLM_API_KEY not configured")
 
         ZhipuAI = _get_zhipuai()
-        self.client = ZhipuAI(api_key=key)
+        self.client = ZhipuAI(
+            api_key=key, timeout=config.model.model_timeout_seconds, max_retries=0
+        )
         self.model = model
+
+    async def close(self):
+        await asyncio.to_thread(self.client.close)
 
     async def analyze_screenshot(self, screenshot_path: str, prompt: str) -> str:
         self._ensure_image_path(screenshot_path)
         image_b64 = self._image_to_base64(screenshot_path)
         image_url = f"data:image/png;base64,{image_b64}"
 
-        response = self.client.chat.completions.create(
+        response = await asyncio.to_thread(
+            self.client.chat.completions.create,
             model=self.model,
             messages=[
                 {
@@ -66,8 +72,10 @@ class GLMModel(AIModel):
 
 Task: {prompt}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model, messages=[{"role": "user", "content": full_prompt}]
+        response = await asyncio.to_thread(
+            self.client.chat.completions.create,
+            model=self.model,
+            messages=[{"role": "user", "content": full_prompt}],
         )
 
         return response.choices[0].message.content
@@ -123,7 +131,8 @@ Rules:
 - Do NOT include status text like "-> success" or invent new actions.
 """
 
-        response = self.client.chat.completions.create(
+        response = await asyncio.to_thread(
+            self.client.chat.completions.create,
             model=self.model,
             messages=[
                 {

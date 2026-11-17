@@ -1,22 +1,12 @@
-import os
 import unittest
 from pathlib import Path
 
-os.environ.setdefault("HEADLESS", "true")
-os.environ.setdefault("RECORD_VIDEO", "true")
-os.environ.setdefault("TIMEOUT_SECONDS", "2")
+import pytest
 
-try:
-    import playwright.async_api  # noqa: F401
-except Exception as exc:
-    raise unittest.SkipTest(f"playwright not installed: {exc}")
+from agent.orchestrator import WebAutomationAgent
+from browser.playwright_agent import BrowserController
 
-from config import config  # noqa: E402
-
-config.reload()
-
-from agent.orchestrator import WebAutomationAgent  # noqa: E402
-from browser.playwright_agent import BrowserController  # noqa: E402
+pytestmark = pytest.mark.browser
 
 
 class FakeModelSelector:
@@ -24,7 +14,7 @@ class FakeModelSelector:
         self.actions = list(actions)
 
     async def decide_next_action_with_fallback(
-        self, screenshot_path, task, history=None, error_hint=None
+        self, screenshot_path, task, history=None, error_hint=None, dom_context=None
     ):
         if self.actions:
             return self.actions.pop(0), "fake"
@@ -40,7 +30,7 @@ class RecordingArtifactsTests(unittest.IsolatedAsyncioTestCase):
         start_url = fixture_path.resolve().as_uri()
 
         model = FakeModelSelector(["WAIT:0.2", "DONE"])
-        browser = BrowserController("recording_artifacts")
+        browser = BrowserController("recording_artifacts", record_video=True)
         agent = WebAutomationAgent(
             "recording_artifacts", model_selector=model, browser=browser
         )
@@ -53,6 +43,8 @@ class RecordingArtifactsTests(unittest.IsolatedAsyncioTestCase):
         )
         result = await agent.close()
 
+        self.assertEqual(result["status"], "success", result["errors"])
+        self.assertEqual(result["steps_taken"], 2)
         self.assertTrue(result["screenshots"])
         self.assertTrue(result["videos"])
         for video in result["videos"]:

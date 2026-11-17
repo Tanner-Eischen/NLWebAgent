@@ -1,0 +1,9 @@
+Vision fallback failed: 'ModelSelector' object has no attribute 'model'
+CONFIRMED quoted task: CLICK_AT reported success, actual clicks=0
+CONFIRMED NAVIGATE to a new URL blocked after initial load
+CONFIRMED disabling auto-checkboxes also disables CAPTCHA detection
+CONFIRMED task result retains synthetic password in raw action
+CONFIRMED self-healing calls missing ModelSelector.model; vision calls=0
+CONFIRMED TYPE/EXTRACT colon splitting corrupts CSS pseudo-selectors
+CONFIRMED artifact-test fake rejects orchestrator dom_context argument
+7 diagnostic groups confirmed; no browser or model invoked

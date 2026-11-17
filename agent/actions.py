@@ -1,8 +1,10 @@
+import json
+import math
 import re
 from enum import Enum
 from typing import Literal, Union
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, TypeAdapter, ValidationError, field_validator
 
 
 class ActionParseError(ValueError):
@@ -82,7 +84,7 @@ class ClickAtAction(BaseAction):
             coord = float(value)
         except (TypeError, ValueError):
             raise ValueError("coordinate must be a number")
-        if coord < 0:
+        if not math.isfinite(coord) or coord < 0:
             raise ValueError("coordinate must be >= 0")
         return coord
 
@@ -100,7 +102,7 @@ class TypeAtAction(BaseAction):
             coord = float(value)
         except (TypeError, ValueError):
             raise ValueError("coordinate must be a number")
-        if coord < 0:
+        if not math.isfinite(coord) or coord < 0:
             raise ValueError("coordinate must be >= 0")
         return coord
 
@@ -169,7 +171,7 @@ class WaitAction(BaseAction):
             seconds = float(value)
         except (TypeError, ValueError):
             raise ValueError("seconds must be a number")
-        if seconds <= 0:
+        if not math.isfinite(seconds) or seconds <= 0:
             raise ValueError("seconds must be > 0")
         return seconds
 
@@ -234,88 +236,35 @@ Action = Union[
 
 
 def parse_action(raw: str) -> Action:
+    """Parse a structured JSON action or the legacy single-line protocol."""
     if raw is None:
         raise ActionParseError("action is empty")
-
-    text = _extract_action_line(raw)
-    if not text:
-        raise ActionParseError("action is empty")
-
-    text = _strip_result_suffix(text)
-    text = _strip_markdown_emphasis(text)
-    upper = text.upper()
-
-    try:
-        if upper.startswith("DONE"):
-            return DoneAction(type=ActionType.DONE)
-        if upper.startswith("CLICK:"):
-            selector = _normalize_field(text.split(":", 1)[1], "selector")
-            return ClickAction(type=ActionType.CLICK, selector=selector)
-        if upper.startswith("CLICK_AT:"):
-            x_val, y_val = _split_xy(text)
-            return ClickAtAction(type=ActionType.CLICK_AT, x=x_val, y=y_val)
-        if upper.startswith("TYPE:"):
-            parts = text.split(":", 2)
-            if len(parts) < 3:
-                raise ActionParseError("TYPE requires selector and text")
-            selector = _normalize_field(parts[1], "selector")
-            text_value = _normalize_field(parts[2], "text", strip_outer_quotes=True)
-            return TypeAction(type=ActionType.TYPE, selector=selector, text=text_value)
-        if upper.startswith("TYPE_AT:"):
-            parts = text.split(":", 3)
-            if len(parts) < 4:
-                raise ActionParseError("TYPE_AT requires x, y, and text")
-            x_val = _normalize_field(parts[1], "x")
-            y_val = _normalize_field(parts[2], "y")
-            text_value = _normalize_field(parts[3], "text", strip_outer_quotes=True)
-            return TypeAtAction(
-                type=ActionType.TYPE_AT, x=x_val, y=y_val, text=text_value
-            )
-        if upper.startswith("NAVIGATE:"):
-            url = _normalize_field(text.split(":", 1)[1], "url")
-            return NavigateAction(type=ActionType.NAVIGATE, url=url)
-        if upper.startswith("SCROLL:"):
-            parts = text.split(":", 2)
-            if len(parts) < 3:
-                raise ActionParseError("SCROLL requires direction and amount")
-            direction = _normalize_field(parts[1], "direction")
-            amount = _normalize_field(parts[2], "amount")
-            return ScrollAction(
-                type=ActionType.SCROLL, direction=direction, amount=amount
-            )
-        if upper.startswith("WAIT:"):
-            seconds = _normalize_field(text.split(":", 1)[1], "seconds")
-            return WaitAction(type=ActionType.WAIT, seconds=seconds)
-        if upper.startswith("EXTRACT:"):
-            parts = text.split(":", 2)
-            if len(parts) < 3:
-                raise ActionParseError("EXTRACT requires selector and attr")
-            selector = _normalize_field(parts[1], "selector")
-            attr = _normalize_field(parts[2], "attr")
-            return ExtractAction(type=ActionType.EXTRACT, selector=selector, attr=attr)
-        if upper.startswith("ERROR:"):
-            message = _normalize_field(text.split(":", 1)[1], "message")
-            return ErrorAction(type=ActionType.ERROR, message=message)
-    except ValidationError as e:
-        raise ActionParseError(str(e)) from e
-
-    raise ActionParseError(f"Unsupported action: {text}")
+    if raw.strip().startswith("{"):
+        try:
+            return TypeAdapter(Action).validate_python(json.loads(raw))
+        except (ValueError, ValidationError) as exc:
+            raise ActionParseError("Invalid structured action") from exc
+    return _parse_action_text(_extract_action_line(raw))
 
 
 def parse_action_lenient(raw: str) -> Action:
     if raw is None:
         raise ActionParseError("action is empty")
+    if raw.strip().startswith("{"):
+        return parse_action(raw)
+    return _parse_action_text(_extract_action_line_lenient(raw))
 
-    text = _extract_action_line_lenient(raw)
+
+def _parse_action_text(text: str) -> Action:
     if not text:
         raise ActionParseError("action is empty")
-
-    text = _strip_result_suffix(text)
     text = _strip_markdown_emphasis(text)
+    if not text.upper().startswith(("TYPE:", "TYPE_AT:")):
+        text = _strip_result_suffix(text)
     upper = text.upper()
 
     try:
-        if upper.startswith("DONE"):
+        if upper in {"DONE", "DONE:"}:
             return DoneAction(type=ActionType.DONE)
         if upper.startswith("CLICK:"):
             selector = _normalize_field(text.split(":", 1)[1], "selector")
@@ -324,9 +273,7 @@ def parse_action_lenient(raw: str) -> Action:
             x_val, y_val = _split_xy(text)
             return ClickAtAction(type=ActionType.CLICK_AT, x=x_val, y=y_val)
         if upper.startswith("TYPE:"):
-            parts = text.split(":", 2)
-            if len(parts) < 3:
-                raise ActionParseError("TYPE requires selector and text")
+            parts = _split_selector_payload(text, "text")
             selector = _normalize_field(parts[1], "selector")
             text_value = _normalize_field(parts[2], "text", strip_outer_quotes=True)
             return TypeAction(type=ActionType.TYPE, selector=selector, text=text_value)
@@ -356,9 +303,7 @@ def parse_action_lenient(raw: str) -> Action:
             seconds = _normalize_field(text.split(":", 1)[1], "seconds")
             return WaitAction(type=ActionType.WAIT, seconds=seconds)
         if upper.startswith("EXTRACT:"):
-            parts = text.split(":", 2)
-            if len(parts) < 3:
-                raise ActionParseError("EXTRACT requires selector and attr")
+            parts = _split_selector_payload(text, "attr")
             selector = _normalize_field(parts[1], "selector")
             attr = _normalize_field(parts[2], "attr")
             return ExtractAction(type=ActionType.EXTRACT, selector=selector, attr=attr)
@@ -369,6 +314,67 @@ def parse_action_lenient(raw: str) -> Action:
         raise ActionParseError(str(e)) from e
 
     raise ActionParseError(f"Unsupported action: {text}")
+
+
+# The legacy protocol is ambiguous for arbitrary text following a colon.
+# Recognize CSS pseudo-classes; JSON or quoted selector fields are unambiguous.
+_CSS_PSEUDOS = set(
+    """active any-link autofill blank checked current default defined
+ disabled empty enabled first first-child first-of-type focus focus-visible
+ focus-within fullscreen future has host host-context hover indeterminate in-range
+ invalid is lang last-child last-of-type left link local-link modal not nth-child
+ nth-col nth-last-child nth-last-col nth-last-of-type nth-of-type only-child
+ only-of-type optional out-of-range past paused picture-in-picture placeholder-shown
+ playing read-only read-write required right root scope target target-within
+ user-invalid user-valid valid visited where visible has-text text text-is
+ text-matches before after first-letter first-line selection placeholder marker""".split()
+)
+
+
+def _split_selector_payload(text: str, field: str) -> list[str]:
+    action, payload = text.split(":", 1)
+    quoted_selector = re.match(r"^(?:selector=)?[\"']", payload.strip()) is not None
+    quote = None
+    depth = 0
+    escaped = False
+    for index, char in enumerate(payload):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in "\"'":
+            quote = char
+        elif char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif char == ":" and depth == 0:
+            tail = payload[index + 1 :]
+            if quoted_selector:
+                return [action, payload[:index], tail]
+            pseudo = re.match(r"([a-zA-Z-]+)", tail)
+            is_pseudo = pseudo and pseudo.group(1) in _CSS_PSEUDOS and ":" in tail
+            if pseudo and pseudo.group(1) in {
+                "text",
+                "has-text",
+                "text-is",
+                "text-matches",
+            }:
+                is_pseudo = tail[pseudo.end() :].startswith("(")
+            if tail.startswith(field + "="):
+                is_pseudo = False
+            if tail.startswith(":") or is_pseudo:
+                continue
+            return [action, payload[:index], tail]
+    raise ActionParseError(
+        f"{action} requires selector and {field}; use JSON for ambiguous fields"
+    )
 
 
 def _strip_wrapped_quotes(value: str) -> str:
@@ -418,7 +424,7 @@ def _looks_like_action_list(value: str) -> bool:
         "DONE",
         "ERROR:",
     ):
-        if token in upper:
+        if re.search(r"(?:^|\s|\|)" + re.escape(token), upper):
             return True
     return False
 
@@ -531,10 +537,9 @@ def _strip_action_prefix(line: str) -> str:
         "DONE",
         "ERROR:",
     )
-    for token in tokens:
-        idx = upper.find(token)
-        if idx >= 0:
-            return cleaned[idx:].strip()
+    indices = [upper.find(token) for token in tokens if token in upper]
+    if indices:
+        return cleaned[min(indices) :].strip()
     if upper.startswith("ACTION:"):
         return cleaned.split(":", 1)[1].strip()
     if upper.startswith("NEXT ACTION:"):
@@ -569,7 +574,10 @@ def _strip_selector_annotation(selector: str) -> str:
     if ":" not in selector:
         return selector
     # Heuristic: strip trailing label like `selector: Label text`
-    head, tail = selector.split(":", 1)
+    try:
+        _, head, tail = _split_selector_payload("CLICK:" + selector, "annotation")
+    except ActionParseError:
+        return selector
     if " " in tail and "(" not in tail:
         return head.strip()
     return selector

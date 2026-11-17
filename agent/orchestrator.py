@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -10,6 +12,7 @@ from agent.actions import (
     parse_action_lenient,
 )
 from auth.manager import AuthManager
+from auth.redaction import SecretRedactor
 from browser.playwright_agent import BrowserController
 from config import config
 from models.model_selector import ModelSelector
@@ -31,9 +34,10 @@ class WebAutomationAgent:
         self.auth_manager = auth_manager or AuthManager()
         self.max_retries = config.agent.max_retries
         self._last_result: Optional[Dict[str, Any]] = None
-        self._navigation_count = 0
-        self._last_success_signature: Optional[str] = None
-        self._repeat_success_count = 0
+        self.redactor = getattr(self.auth_manager, "redactor", None) or SecretRedactor()
+        if self.browser:
+            self.browser.redactor = self.redactor
+        self._closed = False
 
     async def initialize(self):
         logger.info("Initializing WebAutomationAgent")
@@ -41,6 +45,7 @@ class WebAutomationAgent:
             self.model_selector = ModelSelector()
         if not self.browser:
             self.browser = BrowserController(self.session_id)
+        self.browser.redactor = self.redactor
         await self.browser.create_session()
 
     async def execute_task(
@@ -51,12 +56,13 @@ class WebAutomationAgent:
     ) -> Dict[str, Any]:
         if not self.model_selector or not self.browser:
             raise RuntimeError("Agent not initialized")
-
-        logger.info(f"Task: {task_description}")
-
+        if max_steps < 1:
+            raise ValueError("max_steps must be positive")
+        self.browser.redactor = self.redactor
         result: Dict[str, Any] = {
             "task": task_description,
             "status": "running",
+            "outcome": "unverified",
             "steps_taken": 0,
             "actions": [],
             "errors": [],
@@ -66,260 +72,149 @@ class WebAutomationAgent:
             "transcript": None,
         }
         self._last_result = result
-
+        history = []
+        transcript_start = len(getattr(self.browser, "transcript", []))
         try:
             if start_url:
-                ok = await self.browser.navigate(start_url)
-                if not ok:
-                    error_msg = self.browser.last_error or "Navigation failed"
-                    result["errors"].append(error_msg)
-                    result["status"] = "failed"
-                    return result
+                if not await self.browser.navigate(start_url):
+                    raise RuntimeError(self.browser.last_error or "Navigation failed")
+                logged_in = await self.auth_manager.ensure_logged_in(
+                    self.browser, start_url
+                )
+                if isinstance(self.auth_manager, AuthManager):
+                    if self.auth_manager.requires_login(start_url) and not logged_in:
+                        raise RuntimeError("Configured authentication policy failed")
 
-                self._navigation_count = 1
-                await asyncio.sleep(0.5)
-                await self.auth_manager.ensure_logged_in(self.browser, start_url)
-
-            current_screenshot = await self.browser.take_screenshot("step_00")
-            result["screenshots"].append(current_screenshot)
-
-            action_history = []
-
+            screenshot = await self.browser.take_screenshot("step_00")
+            result["screenshots"].append(screenshot)
             for step in range(max_steps):
-                retries = 0
-                last_error: Optional[str] = None
-                forced_coordinate = False
-
-                if config.agent.auto_checkboxes:
-                    if (
-                        config.agent.pause_on_captcha
-                        and await self.browser.detect_captcha()
-                    ):
-                        captcha_msg = "CAPTCHA detected; waiting for manual completion."
-                        result["errors"].append(captcha_msg)
-                        result["status"] = "paused_for_captcha"
-                        result["screenshots"].append(
-                            await self.browser.take_screenshot("captcha")
-                        )
-                        break
-
-                    checked = await self.browser.click_first_checkbox()
-                    if checked:
-                        action_history.append("AUTO_CHECKBOX -> success")
-
-                while retries <= self.max_retries + (1 if forced_coordinate else 0):
-                    history_text = (
-                        "\n".join(action_history[-5:]) if action_history else ""
+                if (
+                    config.agent.pause_on_captcha
+                    and await self.browser.detect_captcha()
+                ):
+                    result["status"] = "paused_for_captcha"
+                    result["errors"].append(
+                        "CAPTCHA detected; complete it before starting another task."
                     )
-                    if last_error and "invalid action" in last_error.lower():
-                        history_text = ""
+                    break
+                if config.agent.auto_checkboxes:
+                    if await self.browser.click_first_checkbox():
+                        history.append("AUTO_CHECKBOX -> success")
 
-                    # Get DOM context for better selector decisions
-                    dom_context = ""
+                last_error = None
+                for attempt in range(self.max_retries + 1):
+                    entry = {
+                        "step": step + 1,
+                        "attempt": attempt + 1,
+                        "action": "",
+                        "model": "",
+                    }
                     try:
                         dom_context = await self.browser.get_dom_context(
                             max_elements=40
                         )
-                    except Exception as e:
-                        logger.warning(f"Could not get DOM context: {e}")
-
-                    logger.info("Requesting model action")
-                    try:
-                        action_raw, model_used = await asyncio.wait_for(
-                            self.model_selector.decide_next_action_with_fallback(
-                                screenshot_path=current_screenshot,
-                                task=task_description,
-                                history=history_text,
-                                error_hint=last_error,
-                                dom_context=dom_context,
-                            ),
-                            timeout=config.model.model_timeout_seconds,
+                        (
+                            raw,
+                            provider,
+                        ) = await self.model_selector.decide_next_action_with_fallback(
+                            screenshot_path=screenshot,
+                            task=self.redactor.redact(task_description),
+                            history=self.redactor.redact("\n".join(history[-5:])),
+                            error_hint=self.redactor.redact(last_error),
+                            dom_context=self.redactor.redact(dom_context),
                         )
-                    except asyncio.TimeoutError:
-                        error_msg = "Model timed out while deciding next action"
-                        logger.error(error_msg)
-                        action_entry = {
-                            "step": step + 1,
-                            "attempt": retries + 1,
-                            "action": "",
-                            "model": "timeout",
-                            "status": "failed",
-                            "error": error_msg,
-                        }
-                        result["actions"].append(action_entry)
-                        result["errors"].append(error_msg)
-                        retries += 1
-                        last_error = error_msg
-                        if retries > self.max_retries:
-                            result["status"] = "failed"
-                        continue
-
-                    action_raw = action_raw.strip()
-                    logger.info(f"Model output ({model_used}): {action_raw}")
-                    action_entry = {
-                        "step": step + 1,
-                        "attempt": retries + 1,
-                        "action": action_raw,
-                        "model": model_used,
-                    }
-
-                    try:
-                        action = parse_action(action_raw)
-                    except ActionParseError as e:
-                        error_msg = f"Invalid action: {e}"
-                        logger.warning(error_msg)
+                        entry["model"] = provider
                         try:
-                            action = parse_action_lenient(action_raw)
-                            logger.warning("Lenient parse used to recover action")
+                            action = parse_action(raw)
                         except ActionParseError:
-                            error_msg = (
-                                f"{error_msg}. Reply with exactly ONE line in the "
-                                "format ACTION:... (no markdown, no prefixes)."
-                            )
-                            action_entry.update(
-                                {"status": "invalid", "error": error_msg}
-                            )
-                            result["actions"].append(action_entry)
-                            result["errors"].append(error_msg)
-                            retries += 1
-                            last_error = error_msg
-                            if retries > self.max_retries:
-                                result["status"] = "failed"
-                            continue
-
-                    if self._should_auto_type(task_description, action_history, action):
-                        auto_text = self._extract_query(task_description)
-                        if auto_text:
-                            action_entry.update(
-                                {
-                                    "status": "success",
-                                    "note": "Auto-typing after click",
-                                }
-                            )
-                            result["actions"].append(action_entry)
-                            submitted = await self._auto_type_last_click(
-                                auto_text, result
-                            )
-                            action_history.append(
-                                f"TYPE_AT:{auto_text} (auto after click)"
-                            )
-                            if submitted:
-                                result["status"] = "success"
-                                break
-                            continue
-
-                    if action.type == ActionType.NAVIGATE:
-                        if self._navigation_count >= 1:
-                            error_msg = "NAVIGATE disabled after initial load; use CLICK_AT/TYPE_AT."
-                            action_entry.update(
-                                {"status": "invalid", "error": error_msg}
-                            )
-                            result["actions"].append(action_entry)
-                            result["errors"].append(error_msg)
-                            retries += 1
-                            last_error = error_msg
-                            if retries > self.max_retries:
-                                result["status"] = "failed"
-                            continue
-                        if self._is_redundant_navigation(action.url, action_history):
-                            error_msg = (
-                                "Redundant NAVIGATE to the current page; "
-                                "use CLICK_AT/TYPE_AT instead."
-                            )
-                            action_entry.update(
-                                {"status": "invalid", "error": error_msg}
-                            )
-                            result["actions"].append(action_entry)
-                            result["errors"].append(error_msg)
-                            retries += 1
-                            last_error = error_msg
-                            if retries > self.max_retries:
-                                result["status"] = "failed"
-                            continue
-
-                    if action.type == ActionType.DONE:
-                        action_entry.update({"status": "success"})
-                        result["actions"].append(action_entry)
-                        result["status"] = "success"
-                        break
-
-                    if action.type == ActionType.ERROR:
-                        action_entry.update(
-                            {"status": "failed", "error": action.message}
+                            try:
+                                action = parse_action_lenient(raw)
+                            except ActionParseError:
+                                # Parser exceptions can contain the entire model output.
+                                raise ValueError(
+                                    "Invalid action; return one structured JSON action or ACTION:... line"
+                                ) from None
+                        if action.type in {ActionType.TYPE, ActionType.TYPE_AT}:
+                            if not re.fullmatch(
+                                r"\$\{ENV:[A-Za-z_][A-Za-z0-9_]*\}", action.text
+                            ):
+                                self.redactor.add(action.text)
+                        safe_action = self.redactor.redact(
+                            action.model_dump(mode="json")
                         )
-                        result["actions"].append(action_entry)
-                        result["errors"].append(action.message)
-                        result["status"] = "failed"
-                        break
-
-                    success, error_msg = await self._execute_action(action, result)
-                    if not success:
-                        error_msg = error_msg or "Action failed"
-                        selector_error = self._is_selector_error(error_msg)
-                        hint = self._augment_error_hint(
-                            error_msg, force_coordinate=selector_error
-                        )
-                        action_entry.update({"status": "failed", "error": error_msg})
-                        result["actions"].append(action_entry)
-                        result["errors"].append(error_msg)
-                        action_history.append(f"{action_raw} -> failed: {error_msg}")
-
-                        failure_screenshot = await self.browser.take_screenshot(
-                            f"step_{step:02d}_failure"
-                        )
-                        result["screenshots"].append(failure_screenshot)
-                        current_screenshot = failure_screenshot
-
-                        retries += 1
-                        last_error = hint
-                        if selector_error and not forced_coordinate:
-                            forced_coordinate = True
-                        max_attempts = self.max_retries + (
-                            1 if forced_coordinate else 0
-                        )
-                        if retries > max_attempts:
+                        if "text" in safe_action:
+                            safe_action["text"] = (
+                                action.text
+                                if re.fullmatch(
+                                    r"\$\{ENV:[A-Za-z_][A-Za-z0-9_]*\}", action.text
+                                )
+                                else "[REDACTED]"
+                            )
+                        # Canonical JSON avoids ambiguous selectors/text in persisted histories.
+                        entry["action"] = json.dumps(safe_action, ensure_ascii=False)
+                        entry["parsed_action"] = safe_action
+                        if action.type == ActionType.DONE:
+                            entry["status"] = "success"
+                            result["status"] = "success"
+                        elif action.type == ActionType.ERROR:
+                            entry.update(
+                                status="failed",
+                                error=self.redactor.redact(action.message),
+                            )
+                            result["actions"].append(entry)
+                            result["errors"].append(entry["error"])
                             result["status"] = "failed"
-                        continue
-
-                    action_entry.update({"status": "success"})
-                    result["actions"].append(action_entry)
-                    action_history.append(f"{action_raw} -> success")
-                    signature = self._action_signature(action)
-                    if signature and signature == self._last_success_signature:
-                        self._repeat_success_count += 1
-                    else:
-                        self._repeat_success_count = 0
-                        self._last_success_signature = signature
-                    last_error = None
-                    if self._repeat_success_count >= 1:
-                        error_msg = "Repeated identical action after success; choose a different action."
-                        result["errors"].append(error_msg)
-                        last_error = error_msg
-                    if action.type == ActionType.NAVIGATE:
-                        self._navigation_count += 1
+                            break
+                        else:
+                            if (
+                                action.type == ActionType.NAVIGATE
+                                and self._is_redundant_navigation(action.url, history)
+                            ):
+                                raise ValueError(
+                                    "Redundant navigation to the current URL"
+                                )
+                            ok, error = await self._execute_action(action, result)
+                            if not ok:
+                                raise RuntimeError(error or "Action failed")
+                            entry["status"] = "success"
+                        result["actions"].append(entry)
+                        history.append(entry["action"] + " -> success")
+                        break
+                    except Exception as exc:
+                        error = self.redactor.redact(str(exc))
+                        entry.update(status="failed", error=error)
+                        result["actions"].append(entry)
+                        result["errors"].append(error)
+                        history.append(entry["action"] + " -> failed: " + error)
+                        last_error = self._augment_error_hint(
+                            error, force_coordinate=self._is_selector_error(error)
+                        )
+                        if attempt == self.max_retries:
+                            result["status"] = "failed"
+                        else:
+                            screenshot = await self.browser.take_screenshot(
+                                f"step_{step:02d}_retry_{attempt}"
+                            )
+                            result["screenshots"].append(screenshot)
+                if result["status"] != "running":
                     break
-
-                if result["status"] in {"success", "failed", "error"}:
-                    break
-
-                if result["status"] == "running" and step < max_steps - 1:
-                    current_screenshot = await self.browser.take_screenshot(
+                if step < max_steps - 1:
+                    screenshot = await self.browser.take_screenshot(
                         f"step_{step + 1:02d}"
                     )
-                    result["screenshots"].append(current_screenshot)
-
-                await asyncio.sleep(0.2)
-
+                    result["screenshots"].append(screenshot)
             if result["status"] == "running":
                 result["status"] = "max_steps_exceeded"
-
-            result["steps_taken"] = len(result["actions"])
-
-        except Exception as e:
-            logger.error(f"Task failed: {e}")
+        except Exception as exc:
             result["status"] = "error"
-            result["errors"].append(str(e))
-
+            result["errors"].append(self.redactor.redact(str(exc)))
+        result["steps_taken"] = len(result["actions"])
+        result["executed_actions"] = getattr(self.browser, "transcript", [])[
+            transcript_start:
+        ]
+        safe_result = self.redactor.redact(result)
+        result.clear()
+        result.update(safe_result)
         return result
 
     async def _execute_action(
@@ -397,8 +292,8 @@ class WebAutomationAgent:
             screenshot = await self.browser.take_screenshot("fallback_vision")
             # Ask vision model to find the element described by the selector
             prompt = f"Find the element matching selector '{selector}'. Return coordinates as x:y (normalized 0-1). If not found, return NONE."
-            response = await self.model_selector.model.analyze_screenshot(
-                screenshot, prompt
+            response, _ = await self.model_selector.analyze_screenshot_with_fallback(
+                screenshot, self.redactor.redact(prompt)
             )
             if response and ":" in response and "NONE" not in response.upper():
                 parts = response.strip().split(":")
@@ -408,7 +303,7 @@ class WebAutomationAgent:
                     if 0 <= x <= 1 and 0 <= y <= 1:
                         return (x, y)
         except Exception as e:
-            logger.warning(f"Vision fallback failed: {e}")
+            logger.warning("Vision fallback failed: %s", type(e).__name__)
         return None
 
     @staticmethod
@@ -445,98 +340,18 @@ class WebAutomationAgent:
                 return True
         return False
 
-    @staticmethod
-    def _extract_query(task_description: str) -> Optional[str]:
-        if not task_description:
-            return None
-        if "'" in task_description:
-            parts = task_description.split("'")
-            if len(parts) >= 3:
-                return parts[1].strip()
-        if '"' in task_description:
-            parts = task_description.split('"')
-            if len(parts) >= 3:
-                return parts[1].strip()
-        return None
-
-    def _should_auto_type(
-        self, task_description: str, action_history: list, action: Any
-    ) -> bool:
-        if action.type != ActionType.CLICK_AT:
-            return False
-        if not self._extract_query(task_description):
-            return False
-        if action_history and "TYPE_AT" in action_history[-1]:
-            return False
-        return True
-
-    async def _auto_type_last_click(self, text: str, result: Dict[str, Any]) -> bool:
-        last = self._last_success_signature or ""
-        if not last.startswith("CLICK_AT:"):
-            return False
-        try:
-            _, x_str, y_str = last.split(":")
-            x = float(x_str)
-            y = float(y_str)
-        except Exception:
-            return False
-        ok = await self.browser.type_at(x, y, text)
-        if ok:
-            result["actions"].append(
-                {
-                    "step": result.get("steps_taken", 0) + 1,
-                    "attempt": 0,
-                    "action": f"TYPE_AT:{x}:{y}:{text}",
-                    "model": "auto",
-                    "status": "success",
-                }
-            )
-            pressed = await self.browser.press_enter()
-            if pressed:
-                result["actions"].append(
-                    {
-                        "step": result.get("steps_taken", 0) + 1,
-                        "attempt": 0,
-                        "action": "PRESS_ENTER",
-                        "model": "auto",
-                        "status": "success",
-                    }
-                )
-            await asyncio.sleep(0.5)
-            url = (self.browser.page.url or "").lower()
-            if "search" in url or "q=" in url:
-                return True
-        return False
-
-    @staticmethod
-    def _action_signature(action: Any) -> Optional[str]:
-        if action.type == ActionType.CLICK_AT:
-            return f"CLICK_AT:{action.x:.4f}:{action.y:.4f}"
-        if action.type == ActionType.TYPE_AT:
-            return f"TYPE_AT:{action.x:.4f}:{action.y:.4f}:{action.text}"
-        if action.type == ActionType.WAIT:
-            return f"WAIT:{action.seconds}"
-        if action.type == ActionType.SCROLL:
-            return f"SCROLL:{action.direction}:{action.amount}"
-        if action.type == ActionType.NAVIGATE:
-            return f"NAVIGATE:{action.url}"
-        if action.type == ActionType.DONE:
-            return "DONE"
-        if action.type == ActionType.ERROR:
-            return f"ERROR:{action.message}"
-        return None
-
     async def close(self) -> Dict[str, Any]:
+        if self._closed:
+            return self._last_result or {}
+        self._closed = True
         artifacts: Dict[str, Any] = {}
-
-        if self.browser:
-            artifacts = await self.browser.close()
-
-        if self.model_selector:
-            await self.model_selector.close()
-
+        try:
+            if self.browser:
+                artifacts = await self.browser.close()
+        finally:
+            if self.model_selector:
+                await self.model_selector.close()
         if self._last_result is not None:
-            self._last_result.update(artifacts)
+            self._last_result.update(self.redactor.redact(artifacts))
             return self._last_result
-
-        return artifacts
+        return self.redactor.redact(artifacts)

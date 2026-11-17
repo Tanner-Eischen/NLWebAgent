@@ -1,6 +1,7 @@
 import base64
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Optional
 
 
 class AIModel(ABC):
@@ -11,6 +12,20 @@ class AIModel(ABC):
     @abstractmethod
     async def reason(self, context: str, prompt: str) -> str:
         pass
+
+    @abstractmethod
+    async def decide_next_action(
+        self,
+        screenshot_path: str,
+        task: str,
+        history: Optional[str] = None,
+        error_hint: Optional[str] = None,
+        dom_context: Optional[str] = None,
+    ) -> str:
+        pass
+
+    async def close(self):
+        """Release provider resources; resource-free models need no cleanup."""
 
     @staticmethod
     def _image_to_base64(image_path: str) -> str:

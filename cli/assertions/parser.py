@@ -117,18 +117,15 @@ def parse_assertion(assertion: str) -> ParsedAssertion:
     if parsed:
         return parsed
 
-    # Default: treat as visibility check
-    return ParsedAssertion(
-        assertion_type=AssertionType.VISIBILITY,
-        raw=assertion,
-        element=assertion,
-        expected_state="visible",
+    raise ValueError(
+        "Unsupported assertion. Use a numeric/string comparison, "
+        "'<selector> is visible/hidden', '<selector> exists', or 'count(<selector>) >= 1'."
     )
 
 
 def _try_parse_numeric(assertion: str) -> Optional[ParsedAssertion]:
     """Try to parse as numeric comparison."""
-    pattern = r"^(\w+)\s*(<|<=|>|>=|==|=)\s*(\d+(?:\.\d+)?)$"
+    pattern = r"^(\w+)\s*(<=|<|>=|>|==|=)\s*([+-]?\d+(?:\.\d+)?)$"
     match = re.match(pattern, assertion)
     if match:
         return ParsedAssertion(

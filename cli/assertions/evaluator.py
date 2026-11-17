@@ -116,7 +116,7 @@ class AssertionEvaluator:
 
     async def _evaluate_numeric(self, assertion: ParsedAssertion) -> AssertionResult:
         """Evaluate a numeric comparison assertion."""
-        value = await self._extract_numeric_value(assertion.field)
+        value = await self._extract_numeric_value(assertion.field, assertion.selector)
 
         if value is None:
             return AssertionResult(
@@ -134,7 +134,7 @@ class AssertionEvaluator:
 
     async def _evaluate_string(self, assertion: ParsedAssertion) -> AssertionResult:
         """Evaluate a string matching assertion."""
-        value = await self._extract_string_value(assertion.field)
+        value = await self._extract_string_value(assertion.field, assertion.selector)
 
         if value is None:
             return AssertionResult(
@@ -152,7 +152,7 @@ class AssertionEvaluator:
 
     async def _evaluate_visibility(self, assertion: ParsedAssertion) -> AssertionResult:
         """Evaluate a visibility assertion."""
-        selector = self._get_element_selector(assertion.element)
+        selector = assertion.selector or self._get_element_selector(assertion.element)
         visible = await self._check_visibility(selector)
 
         expected_visible = assertion.expected_state == "visible"
@@ -177,7 +177,7 @@ class AssertionEvaluator:
 
     async def _evaluate_exists(self, assertion: ParsedAssertion) -> AssertionResult:
         """Evaluate an existence assertion."""
-        selector = self._get_element_selector(assertion.element)
+        selector = assertion.selector or self._get_element_selector(assertion.element)
         exists = await self._element_exists(selector)
 
         return AssertionResult(
@@ -186,53 +186,53 @@ class AssertionEvaluator:
             expected_value="exists",
         )
 
-    async def _extract_numeric_value(self, field: str) -> Optional[float]:
-        """Extract a numeric value from the page."""
-        selector = self.FIELD_SELECTORS.get(field.lower(), f".{field}, #{field}")
+    async def _extract_numeric_value(
+        self, field: str, selector: Optional[str] = None
+    ) -> Optional[float]:
+        """Read one signed number using decimal points and comma thousands groups.
 
-        ok, text = await self.browser.extract(selector, "text")
-        if ok and text:
-            # Extract first number from text
-            numbers = re.findall(r"[\d,.]+", text)
-            if numbers:
-                try:
-                    return float(numbers[0].replace(",", ""))
-                except ValueError:
-                    pass
-        return None
+        Currency symbols may precede or follow a sign. Ambiguous values, ranges,
+        and decimal-comma formats fail instead of silently changing the amount.
+        """
+        text = await self._extract_string_value(field, selector)
+        if not text:
+            return None
+        normalized = text.replace("\N{MINUS SIGN}", "-")
+        normalized = re.sub(r"[$€£¥]", "", normalized).strip()
+        match = re.fullmatch(
+            r"([+-]?)\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)",
+            normalized,
+        )
+        if not match:
+            return None
+        return float(match.group(1) + match.group(2).replace(",", ""))
 
-    async def _extract_string_value(self, field: str) -> Optional[str]:
+    async def _extract_string_value(
+        self, field: str, selector: Optional[str] = None
+    ) -> Optional[str]:
         """Extract a string value from the page."""
-        if field.lower() == "url":
+        if field.lower() == "url" and not selector:
             return self.browser.page.url if self.browser.page else None
 
-        selector = self.FIELD_SELECTORS.get(field.lower(), f".{field}, #{field}")
+        selector = selector or self.FIELD_SELECTORS.get(
+            field.lower(), f".{field}, #{field}"
+        )
         ok, text = await self.browser.extract(selector, "text")
         return text if ok else None
 
     async def _check_visibility(self, selector: str) -> bool:
         """Check if an element is visible."""
-        try:
-            locator = self.browser.page.locator(selector)
-            return await locator.first.is_visible()
-        except Exception:
-            return False
+        locator = self.browser.page.locator(selector)
+        return await locator.first.is_visible()
 
     async def _count_elements(self, selector: str) -> int:
         """Count elements matching selector."""
-        try:
-            locator = self.browser.page.locator(selector)
-            return await locator.count()
-        except Exception:
-            return 0
+        locator = self.browser.page.locator(selector)
+        return await locator.count()
 
     async def _element_exists(self, selector: str) -> bool:
         """Check if an element exists."""
-        try:
-            locator = self.browser.page.locator(selector)
-            return await locator.count() > 0
-        except Exception:
-            return False
+        return await self._count_elements(selector) > 0
 
     def _get_element_selector(self, element: str) -> str:
         """Convert element name to selector."""

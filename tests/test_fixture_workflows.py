@@ -136,6 +136,7 @@ def data_table_html(fixtures_dir):
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_search_workflow(search_html):
     """Test the search workflow with deterministic actions."""
     model_selector = FakeModelSelector("search")
@@ -163,14 +164,19 @@ async def test_search_workflow(search_html):
         assert result["steps_taken"] >= 3
 
         # Check that selector actions were executed
-        action_types = [a.get("action", "").split(":")[0] for a in result["actions"]]
+        action_types = [
+            a.get("parsed_action", {}).get("type") for a in result["actions"]
+        ]
         assert "CLICK" in action_types or "TYPE" in action_types
+        assert "Result 1" in await browser.page.inner_text("#results")
+        assert await browser.page.locator("#results .result-item").count() == 4
 
     finally:
         await browser.close()
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_login_workflow(login_html):
     """Test the login workflow with deterministic actions."""
     model_selector = FakeModelSelector("login")
@@ -195,12 +201,15 @@ async def test_login_workflow(login_html):
             f"Expected success, got {result['status']}"
         )
         assert len(result["actions"]) >= 5, "Should have at least 5 actions"
+        assert await browser.page.locator("#message.success").is_visible()
+        assert "Login successful!" in await browser.page.inner_text("#message")
 
     finally:
         await browser.close()
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_extract_workflow(data_table_html):
     """Test the extract workflow with deterministic actions."""
     model_selector = FakeModelSelector("extract")
@@ -233,6 +242,7 @@ async def test_extract_workflow(data_table_html):
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_click_at_fallback_workflow(search_html):
     """Test coordinate-based actions when selectors might fail."""
     model_selector = FakeModelSelector("click_at_search")
@@ -268,6 +278,7 @@ async def test_click_at_fallback_workflow(search_html):
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_browser_extract_method(data_table_html):
     """Test browser extract method directly."""
     browser = BrowserController("test_extract_method")
@@ -292,6 +303,7 @@ async def test_browser_extract_method(data_table_html):
 
 
 @pytest.mark.asyncio
+@pytest.mark.browser
 async def test_browser_extract_all_method(data_table_html):
     """Test browser extract_all method."""
     browser = BrowserController("test_extract_all")

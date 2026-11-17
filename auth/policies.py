@@ -15,14 +15,15 @@ class LoginPolicy:
     password_key: str = "PASSWORD"
 
 
-POLICIES: Dict[str, LoginPolicy] = {
-    "example.com": LoginPolicy(
-        domain="example.com",
-        service="EXAMPLE_SITE",
-        login_url="https://example.com/login",
-        username_selector="input[name='username']",
-        password_selector="input[name='password']",
-        submit_selector="button[type='submit']",
-        post_login_selector="body",
-    ),
-}
+# Add only real, intentionally configured login targets to this mapping.
+POLICIES: Dict[str, LoginPolicy] = {}
+
+EXAMPLE_POLICY = LoginPolicy(
+    domain="example.com",
+    service="EXAMPLE_SITE",
+    login_url="https://example.com/login",
+    username_selector="input[name='username']",
+    password_selector="input[name='password']",
+    submit_selector="button[type='submit']",
+    post_login_selector="[data-testid='authenticated-user']",
+)

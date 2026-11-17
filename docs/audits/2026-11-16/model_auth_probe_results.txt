@@ -1,0 +1,7 @@
+CURRENT-BUG DIAGNOSTICS: observations, not future regression expectations
+SDK availability: {'openai': False, 'zhipuai': False}
+Empty storage state: login_result=True navigate_calls=0 type_calls=0
+Failed login navigation: login_result=True type_calls=2 submit_calls=1
+USE_LOCAL_MODEL=false: ollama_init_calls=1
+Primary timeout: timed_out=True fallback_calls=0
+Synchronous GLM client: timeout_seconds=0.01 elapsed_seconds=0.101 timed_out=False

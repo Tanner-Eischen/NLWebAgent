@@ -7,6 +7,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+from config import config
 from models.base_model import AIModel
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,13 @@ class OpenAIModel(AIModel):
         if not key:
             raise ValueError("OPENAI_API_KEY not configured")
 
-        self.client = AsyncOpenAI(api_key=key)
+        self.client = AsyncOpenAI(
+            api_key=key, timeout=config.model.model_timeout_seconds, max_retries=0
+        )
         self.model = model
+
+    async def close(self):
+        await self.client.close()
 
     async def analyze_screenshot(self, screenshot_path: str, prompt: str) -> str:
         self._ensure_image_path(screenshot_path)

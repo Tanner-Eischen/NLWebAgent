@@ -11,7 +11,7 @@ load_dotenv()
 @dataclass
 class ModelConfig:
     use_local_model: bool = True
-    fallback_to_claude: bool = True
+    fallback_to_claude: bool = False
     # Model provider: "ollama", "openai", "glm", "claude"
     model_provider: str = "ollama"
     local_model_name: str = "llama3.2-vision:11b"
@@ -46,7 +46,7 @@ class AgentConfig:
     verbose: bool = True
     enable_logging: bool = True
     log_level: str = "INFO"
-    auto_checkboxes: bool = True
+    auto_checkboxes: bool = False
     pause_on_captcha: bool = True
     action_strategy: str = "selector_first"  # "selector_first" or "coordinate_only"
 
@@ -58,10 +58,15 @@ class AuthConfig:
 
 class Config:
     def __init__(self):
+        use_local_model = self._get_bool("USE_LOCAL_MODEL", True)
         self.model = ModelConfig(
-            use_local_model=self._get_bool("USE_LOCAL_MODEL", True),
-            fallback_to_claude=self._get_bool("FALLBACK_TO_CLAUDE", True),
-            model_provider=os.getenv("MODEL_PROVIDER", "ollama"),
+            use_local_model=use_local_model,
+            fallback_to_claude=self._get_bool("FALLBACK_TO_CLAUDE", False),
+            model_provider=os.getenv(
+                "MODEL_PROVIDER", "ollama" if use_local_model else "claude"
+            )
+            .strip()
+            .lower(),
             local_model_name=os.getenv("OLLAMA_MODEL", "llama3.2-vision:11b"),
             claude_model_name=os.getenv("CLAUDE_MODEL", "claude-3-5-haiku-20241022"),
             openai_model_name=os.getenv("OPENAI_MODEL", "gpt-4o"),
@@ -93,7 +98,7 @@ class Config:
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             verbose=self._get_bool("VERBOSE", True),
             enable_logging=self._get_bool("ENABLE_LOGGING", True),
-            auto_checkboxes=self._get_bool("AUTO_CHECKBOXES", True),
+            auto_checkboxes=self._get_bool("AUTO_CHECKBOXES", False),
             pause_on_captcha=self._get_bool("PAUSE_ON_CAPTCHA", True),
             action_strategy=os.getenv("ACTION_STRATEGY", "selector_first"),
         )
@@ -129,9 +134,25 @@ class Config:
         return value
 
     def validate_config(self) -> bool:
-        if self.model.fallback_to_claude and not self.claude_api_key:
+        provider = self.model.model_provider
+        if provider not in {"ollama", "openai", "glm", "claude"}:
+            raise ValueError(f"Unknown MODEL_PROVIDER: {provider}")
+        if self.model.model_timeout_seconds <= 0:
+            raise ValueError("MODEL_TIMEOUT_SECONDS must be positive")
+        if provider == "openai" and not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY is required for MODEL_PROVIDER=openai")
+        if provider == "glm" and not (
+            os.getenv("ZHIPUAI_API_KEY") or os.getenv("GLM_API_KEY")
+        ):
             raise ValueError(
-                "Claude fallback enabled but CLAUDE_API_KEY not set in .env"
+                "ZHIPUAI_API_KEY or GLM_API_KEY is required for MODEL_PROVIDER=glm"
+            )
+        if (
+            provider == "claude" or self.model.fallback_to_claude
+        ) and not self.claude_api_key:
+            raise ValueError(
+                "CLAUDE_API_KEY is required for Claude or Claude fallback; "
+                "set FALLBACK_TO_CLAUDE=false for a local-only run"
             )
 
         if self.browser.wait_until not in {"load", "domcontentloaded", "networkidle"}:

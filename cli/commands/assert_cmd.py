@@ -1,5 +1,5 @@
 """
-nlwa assert - Semantic assertions on web pages.
+nlwa assert - DOM assertions on web pages.
 
 Usage:
     nlwa assert "price < 50" --url https://shop.example.com/product/123
@@ -16,11 +16,15 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from auth.redaction import SecretRedactor
 from browser.playwright_agent import BrowserController
 from cli.assertions.evaluator import AssertionEvaluator
 from cli.assertions.parser import parse_assertion
 
-app = typer.Typer(help="Run semantic assertions on web pages")
+app = typer.Typer(
+    context_settings={"allow_interspersed_args": True},
+    help="Run DOM assertions on web pages",
+)
 console = Console()
 
 
@@ -36,17 +40,20 @@ def assert_cmd(
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file for assertion result"
     ),
-    headless: bool = typer.Option(
-        True, "--headless/-H", help="Run browser in headless mode"
+    headless: Optional[bool] = typer.Option(
+        None,
+        "--headless/--headed",
+        "-h/-H",
+        help="Override configured browser display mode",
     ),
 ):
     """
-    Run a semantic assertion against a web page.
+    Run a DOM assertion against a web page.
 
     Supported assertion types:
     - Numeric comparisons: "price < 50", "count >= 5"
     - String matching: "title contains 'Sale'", "url starts with 'https'"
-    - Visual checks: "button is visible", "form has no errors"
+    - Visibility checks: "button is visible", "form is hidden"
 
     Example:
         nlwa assert "price < 50" --url https://shop.example.com/product/123
@@ -59,50 +66,41 @@ async def _assert_async(
     url: str,
     selector: Optional[str],
     output: Optional[Path],
-    headless: bool,
+    headless: Optional[bool],
 ):
-    """Async implementation of assert command."""
-    import os
-
-    os.environ["HEADLESS"] = str(headless).lower()
-
-    browser = BrowserController()
-
+    """Evaluate a page assertion and preserve its verdict as the process exit code."""
+    redactor = SecretRedactor()
+    browser = None
     try:
-        await browser.create_session()
-        await browser.navigate(url)
-
-        # Parse and evaluate the assertion using the evaluator module
         parsed = parse_assertion(assertion)
-        evaluator = AssertionEvaluator(browser)
-        result = await evaluator.evaluate(parsed)
+        if selector:
+            parsed.selector = selector
+        browser = BrowserController(headless=headless)
+        redactor = browser.redactor
+        try:
+            await browser.create_session()
+            if not await browser.navigate(url):
+                raise RuntimeError(browser.last_error or "Navigation failed")
+            result = await AssertionEvaluator(browser).evaluate(parsed)
+        finally:
+            await browser.close()
 
-        # Convert to dict for output
         result_dict = result.to_dict()
         result_dict["assertion"] = assertion
-
-        # Print result
-        _print_assertion_result(assertion, result_dict)
-
-        # Save to file if requested
+        result_dict["selector"] = selector
+        result_dict = redactor.redact(result_dict)
+        _print_assertion_result(redactor.redact(assertion), result_dict)
         if output:
-            with open(output, "w") as f:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with open(output, "w", encoding="utf-8") as f:
                 json.dump(result_dict, f, indent=2)
             console.print(f"\n[dim]Result saved to: {output}[/]")
-
-        # Return appropriate exit code
-        if result.passed:
-            console.print("\n[bold green]ASSERTION PASSED[/]")
-            raise typer.Exit(0)
-        else:
-            console.print("\n[bold red]ASSERTION FAILED[/]")
-            raise typer.Exit(1)
-
+        exit_code = 0 if result.passed else 1
+        console.print("\nASSERTION PASSED" if result.passed else "\nASSERTION FAILED")
     except Exception as e:
-        console.print(f"[bold red]Error:[/] {e}")
-        raise typer.Exit(1)
-    finally:
-        await browser.close()
+        console.print(f"[bold red]Error:[/] {redactor.redact(str(e))}")
+        exit_code = 1
+    raise typer.Exit(exit_code)
 
 
 def _print_assertion_result(assertion: str, result: dict):

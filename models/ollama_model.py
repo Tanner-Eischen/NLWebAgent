@@ -24,6 +24,7 @@ class OllamaModel(AIModel):
     async def close(self):
         if self.session:
             await self.session.close()
+            self.session = None
 
     async def _call_ollama(
         self,
@@ -57,13 +58,12 @@ class OllamaModel(AIModel):
             async with session.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=300),
+                timeout=aiohttp.ClientTimeout(total=config.model.model_timeout_seconds),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("message", {}).get("content", "").strip()
-                error = await resp.text()
-                logger.error(f"Ollama API error {resp.status}: {error}")
+                logger.error("Ollama API error %s", resp.status)
                 raise RuntimeError(f"Ollama error: {resp.status}")
         except asyncio.TimeoutError:
             raise RuntimeError("Ollama request timed out")

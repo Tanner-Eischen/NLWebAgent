@@ -1,11 +1,119 @@
-"""
-Playwright test code generator.
+"""Generate replayable Playwright source from successful execution events."""
 
-Converts recorded browser sessions into Playwright TypeScript test code.
-"""
-
-from datetime import datetime
+import json
+import math
+import re
 from typing import Any, Dict, List, Optional
+
+from agent.actions import ActionParseError, ActionType, parse_action
+
+_REFERENCE = re.compile(r"\$\{ENV:([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _value(value: str, input_name: Optional[str] = None) -> str:
+    """Serialize JavaScript data, substituting explicit runtime secret references."""
+    value = str(value)
+    if input_name is not None and not _REFERENCE.fullmatch(value):
+        # Legacy recordings may predate redaction. Never embed typed literals.
+        return f"requiredEnv({json.dumps(input_name)})"
+    if "[REDACTED]" in value or "<typed_text>" in value:
+        if input_name is None:
+            raise ValueError(
+                "Replay target was redacted; supply an explicit environment reference"
+            )
+        return f"requiredEnv({json.dumps(input_name)})"
+    pieces = []
+    end = 0
+    for match in _REFERENCE.finditer(value):
+        if match.start() > end:
+            pieces.append(json.dumps(value[end : match.start()]))
+        pieces.append(f"requiredEnv({json.dumps(match[1])})")
+        end = match.end()
+    if not pieces:
+        return json.dumps(value)
+    if end < len(value):
+        pieces.append(json.dumps(value[end:]))
+    return " + ".join(pieces)
+
+
+def _coordinate(value: float, axis: str, space: str) -> str:
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError("Replay coordinates must be finite and nonnegative")
+    if space == "pixels" or number > 1:
+        return str(int(number))
+    if space not in {"normalized", "auto"}:
+        raise ValueError("Unknown coordinate space")
+    return f"Math.trunc({number} * page.viewportSize().{axis})"
+
+
+def _event_code(event: dict, index: int) -> str:
+    kind = event.get("action", "").lower()
+    if kind == "navigate":
+        return f"await page.goto({_value(event['url'])});"
+    if kind == "click":
+        return f"await page.click({_value(event['selector'])});"
+    if kind in {"type", "type_at"}:
+        text = _value(event.get("text", "[REDACTED]"), f"NLWA_INPUT_{index + 1}")
+        if kind == "type":
+            selector = _value(event["selector"])
+            return f'await page.fill({selector}, ""); await page.type({selector}, {text}, {{ delay: 50 }});'
+    if kind in {"click_at", "type_at"}:
+        space = event.get("coordinate_space", "auto")
+        x = _coordinate(event["x"], "width", space)
+        y = _coordinate(event["y"], "height", space)
+        code = f"await page.mouse.click({x}, {y});"
+        if kind == "type_at":
+            code += f" await page.keyboard.type({text}, {{ delay: 50 }});"
+        return code
+    if kind == "press_enter":
+        return 'await page.keyboard.press("Enter");'
+    if kind == "scroll":
+        amount = int(event["amount"])
+        if amount <= 0:
+            raise ValueError("Scroll amount must be positive")
+        offsets = {
+            "down": (0, amount),
+            "up": (0, -amount),
+            "left": (-amount, 0),
+            "right": (amount, 0),
+        }
+        dx, dy = offsets[event["direction"]]
+        return f"await page.evaluate(([x, y]) => window.scrollBy(x, y), [{dx}, {dy}]);"
+    if kind == "wait":
+        seconds = float(event["seconds"])
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("Wait must be finite and positive")
+        return f"await page.waitForTimeout({int(seconds * 1000)});"
+    if kind == "extract":
+        locator = f"page.locator({_value(event['selector'])}).first()"
+        attr = event.get("attr", "text")
+        if attr.lower() in {"text", "innertext", "textcontent"}:
+            read = f"{locator}.innerText()"
+        elif attr.lower() == "value":
+            read = f"{locator}.inputValue()"
+        else:
+            read = f"{locator}.getAttribute({_value(attr)})"
+        return f"const value{index} = await {read};"
+    if kind == "done":
+        return "// Agent finished; outcome assertions are separate."
+    raise ValueError(f"Unsupported replay action: {kind}")
+
+
+def _legacy_event(entry: dict) -> Optional[dict]:
+    if entry.get("status", "success") != "success":
+        return None
+    raw = entry.get("parsed_action")
+    if raw:
+        action = parse_action(json.dumps(raw))
+    else:
+        action = parse_action(entry.get("action", ""))
+    event = action.model_dump(mode="json")
+    kind = event.pop("type").lower()
+    event["action"] = "type" if kind == "type" else kind
+    if action.type == ActionType.ERROR:
+        return None
+    return event
 
 
 def generate_playwright_test(
@@ -13,211 +121,75 @@ def generate_playwright_test(
     test_name: str = "test_recorded",
     add_assertions: bool = True,
 ) -> str:
-    """
-    Generate a Playwright TypeScript test from a recording.
+    """Prefer actual browser events over the model's proposed action history.
 
-    Args:
-        recording: Dict containing url, actions, extractions, etc.
-        test_name: Name for the generated test function
-        add_assertions: Whether to add assertion suggestions
-
-    Returns:
-        Generated TypeScript test code as string
+    Typed values are references to environment variables. Missing values fail
+    explicitly instead of replaying a redaction placeholder as literal input.
     """
+    if "transcript" in recording:
+        events = [
+            event
+            for event in recording["transcript"]
+            if event.get("status", "success") == "success"
+        ]
+    else:
+        events = []
+        for entry in recording.get("actions", []):
+            event = _legacy_event(entry)
+            if event is not None:
+                events.append(event)
     url = recording.get("url", "")
-    actions = recording.get("actions", [])
-    extractions = recording.get("extractions", [])
-    _transcript = recording.get("transcript", [])  # noqa: F841
-
+    if url and (not events or events[0].get("action") != "navigate"):
+        events.insert(0, {"action": "navigate", "url": url})
+    viewport = recording.get("viewport") or next(
+        (event["viewport"] for event in events if event.get("viewport")), None
+    )
     lines = [
-        "// Generated by NLWebAgent",
-        f"// Generated: {datetime.now().isoformat()}",
-        f"// URL: {url}",
-        "",
+        "// Generated by NLWebAgent. Supply referenced environment variables before replay.",
         "import { test, expect } from '@playwright/test';",
         "",
-        f"test('{test_name}', async ({{ page }}) => {{",
+        "function requiredEnv(name) {",
+        "  const value = process.env[name];",
+        "  if (!value) throw new Error(`Missing replay environment variable: ${name}`);",
+        "  return value;",
+        "}",
+        "",
     ]
-
-    # Navigate to starting URL
-    lines.append(f"  await page.goto('{url}');")
-
-    # Process each action
-    for i, action in enumerate(actions):
-        action_str = action.get("action", "")
-        playwright_action = _convert_action_to_playwright(action_str, i)
-
-        if playwright_action:
-            lines.append(f"  {playwright_action}")
-
-    # Add assertion suggestions
-    if add_assertions and extractions:
-        lines.append("")
-        lines.append("  // Assertion suggestions based on recorded extractions:")
-        for ext in extractions:
-            selector = ext.get("selector", "")
-            value = ext.get("value", "")
-            if selector and value:
-                # Escape quotes in value
-                value_escaped = str(value).replace("'", "\\'")[:50]
-                lines.append(
-                    f"  // await expect(page.locator('{selector}')).toContainText('{value_escaped}');"
-                )
-
-    # Add common assertions
+    if viewport:
+        lines.append(f"test.use({{ viewport: {json.dumps(viewport)} }});")
+    lines.append(f"test({json.dumps(test_name)}, async ({{ page }}) => {{")
+    for index, event in enumerate(events):
+        lines.append("  " + _event_code(event, index))
     if add_assertions:
-        lines.append("")
-        lines.append("  // Verify page loaded")
-        lines.append("  await expect(page).toHaveURL(/.*\\.*/);")
-
-    lines.append("});")
-    lines.append("")
-
+        if recording.get("final_url"):
+            lines.append(
+                f"  await expect(page).toHaveURL({_value(recording['final_url'])});"
+            )
+        lines.append("  // Add explicit outcome assertions for the intended behavior.")
+        for extraction in recording.get("extractions", []):
+            if extraction.get("selector") and extraction.get("value") is not None:
+                # Serialize the whole suggestion so user data cannot introduce source lines.
+                suggestion = {
+                    "selector": extraction["selector"],
+                    "attr": extraction.get("attr", "text"),
+                    "expected": extraction["value"],
+                }
+                lines.append("  // Suggested assertion data: " + json.dumps(suggestion))
+    lines.extend(["});", ""])
     return "\n".join(lines)
 
 
 def _convert_action_to_playwright(action: str, index: int) -> Optional[str]:
-    """
-    Convert a recorded action string to Playwright TypeScript code.
-
-    Args:
-        action: Action string like "CLICK:#button" or "TYPE:#input:hello"
-        index: Action index for comments
-
-    Returns:
-        Playwright TypeScript code or None if not convertible
-    """
     if not action:
         return None
-
-    action = action.strip()
-    upper = action.upper()
-
-    # Parse action type and parameters
-    if upper.startswith("CLICK:"):
-        selector = action.split(":", 1)[1] if ":" in action else ""
-        if selector:
-            return f"await page.click('{_escape_selector(selector)}');  // Step {index + 1}"
-
-    elif upper.startswith("CLICK_AT:"):
-        parts = action.split(":")
-        if len(parts) >= 3:
-            x, y = parts[1], parts[2]
-            return f"await page.mouse.click({x}, {y});  // Step {index + 1}"
-
-    elif upper.startswith("TYPE:"):
-        parts = action.split(":", 2)
-        if len(parts) >= 3:
-            selector, text = parts[1], parts[2]
-            text_escaped = _escape_string(text)
-            return (
-                f"await page.fill('{_escape_selector(selector)}', '{text_escaped}');"
-                f"  // Step {index + 1}"
-            )
-
-    elif upper.startswith("TYPE_AT:"):
-        parts = action.split(":", 3)
-        if len(parts) >= 4:
-            x, y, text = parts[1], parts[2], parts[3]
-            text_escaped = _escape_string(text)
-            return (
-                f"await page.mouse.click({x}, {y}); "
-                f"await page.keyboard.type('{text_escaped}');  // Step {index + 1}"
-            )
-
-    elif upper.startswith("NAVIGATE:"):
-        url = action.split(":", 1)[1] if ":" in action else ""
-        if url:
-            return f"await page.goto('{url}');  // Step {index + 1}"
-
-    elif upper.startswith("SCROLL:"):
-        parts = action.split(":", 2)
-        if len(parts) >= 3:
-            direction, amount = parts[1].lower(), parts[2]
-            if direction == "down":
-                return f"await page.evaluate('window.scrollBy(0, {amount})');  // Step {index + 1}"
-            elif direction == "up":
-                return f"await page.evaluate('window.scrollBy(0, -{amount})');  // Step {index + 1}"
-
-    elif upper.startswith("WAIT:"):
-        seconds = action.split(":", 1)[1] if ":" in action else "1"
-        try:
-            ms = int(float(seconds) * 1000)
-            return f"await page.waitForTimeout({ms});  // Step {index + 1}"
-        except ValueError:
-            return None
-
-    elif upper.startswith("EXTRACT:"):
-        parts = action.split(":", 2)
-        if len(parts) >= 3:
-            selector, _attr = parts[1], parts[2]  # noqa: F841
-            return f"const value{index} = await page.locator('{_escape_selector(selector)}').textContent();  // Step {index + 1}"
-
-    elif upper == "DONE":
-        return "// Task completed"
-
-    # Unknown action - add as comment
-    return f"// TODO: {action}"
-
-
-def _escape_selector(selector: str) -> str:
-    """Escape a CSS selector for use in a string literal."""
-    # Basic escaping - just handle quotes
-    return selector.replace("'", "\\'").replace('"', '\\"')
-
-
-def _escape_string(text: str) -> str:
-    """Escape a text string for use in a string literal."""
-    return text.replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
+    try:
+        event = _legacy_event({"action": action})
+    except ActionParseError as exc:
+        raise ValueError("Cannot export invalid action") from exc
+    return _event_code(event, index) if event else None
 
 
 def generate_test_from_transcript(
-    transcript: List[Dict],
-    url: str,
-    test_name: str = "test_from_transcript",
+    transcript: List[Dict], url: str, test_name: str = "test_from_transcript"
 ) -> str:
-    """
-    Generate a Playwright test from a browser transcript.
-
-    Args:
-        transcript: List of transcript entries from BrowserController
-        url: Starting URL
-        test_name: Name for the generated test
-
-    Returns:
-        Generated TypeScript test code
-    """
-    actions = []
-
-    for entry in transcript:
-        action_type = entry.get("action", "")
-
-        if action_type == "navigate":
-            actions.append({"action": f"NAVIGATE:{entry.get('url', '')}"})
-
-        elif action_type == "click":
-            actions.append({"action": f"CLICK:{entry.get('selector', '')}"})
-
-        elif action_type == "type":
-            # Note: transcript doesn't store the typed text, so we use placeholder
-            actions.append({"action": f"TYPE:{entry.get('selector', '')}:<typed_text>"})
-
-        elif action_type == "click_at":
-            x, y = entry.get("x", 0), entry.get("y", 0)
-            actions.append({"action": f"CLICK_AT:{x}:{y}"})
-
-        elif action_type == "type_at":
-            x, y = entry.get("x", 0), entry.get("y", 0)
-            actions.append({"action": f"TYPE_AT:{x}:{y}:<typed_text>"})
-
-        elif action_type == "extract":
-            actions.append(
-                {
-                    "action": f"EXTRACT:{entry.get('selector', '')}:{entry.get('attr', 'text')}"
-                }
-            )
-
-    return generate_playwright_test(
-        recording={"url": url, "actions": actions},
-        test_name=test_name,
-    )
+    return generate_playwright_test({"url": url, "transcript": transcript}, test_name)

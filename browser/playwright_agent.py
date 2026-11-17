@@ -1,19 +1,32 @@
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.async_api import async_playwright
 
+from auth.redaction import SecretRedactor, resolve_secret_references
 from config import config
 
 logger = logging.getLogger(__name__)
 
 
 class BrowserController:
-    def __init__(self, session_id: str = None):
+    def __init__(
+        self,
+        session_id: str = None,
+        *,
+        headless: Optional[bool] = None,
+        record_video: Optional[bool] = None,
+    ):
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.headless = config.browser.headless if headless is None else headless
+        self.record_video = (
+            config.browser.record_video if record_video is None else record_video
+        )
+        self.redactor = SecretRedactor()
         self.browser = None
         self.context = None
         self.page = None
@@ -23,11 +36,28 @@ class BrowserController:
         self.video_paths: List[str] = []
         self.screenshot_paths: List[str] = []
 
+    def _record(self, event: Dict[str, Any]) -> None:
+        self.transcript.append(self.redactor.redact(event))
+
+    def _prepare_text(self, text: str) -> Tuple[str, str]:
+        resolved = resolve_secret_references(text, self.redactor)
+        safe_text = self.redactor.redact(resolved)
+        if re.fullmatch(r"\$\{ENV:[A-Za-z_][A-Za-z0-9_]*\}", safe_text):
+            return resolved, safe_text
+        # Even a mixture of literals and secret references may contain private
+        # text outside the reference. Only full-value references are replayable.
+        self.redactor.add(resolved)
+        return resolved, "[REDACTED]"
+
+    def _viewport(self) -> Dict[str, int]:
+        return self.page.viewport_size or {
+            "width": config.browser.viewport_width,
+            "height": config.browser.viewport_height,
+        }
+
     async def launch(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=config.browser.headless
-        )
+        self.browser = await self.playwright.chromium.launch(headless=self.headless)
         logger.info("Browser launched")
 
     async def create_session(self):
@@ -41,7 +71,7 @@ class BrowserController:
             }
         }
 
-        if config.browser.record_video:
+        if self.record_video:
             context_args["record_video_dir"] = str(Path(config.browser.video_dir))
 
         storage_state_path = Path(config.browser.storage_state_path)
@@ -65,48 +95,53 @@ class BrowserController:
                     wait_for_selector,
                     timeout=config.browser.timeout_seconds * 1000,
                 )
-            logger.info(f"Navigated to: {url}")
-            self.transcript.append({"action": "navigate", "url": url})
+            logger.info("Navigation completed")
+            self._record({"action": "navigate", "url": url})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Navigation failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Navigation failed: %s", type(e).__name__)
             return False
 
     async def click(self, selector: str) -> bool:
         try:
             resolved = await self._resolve_selector(selector)
             if not resolved:
-                self.last_error = f"Selector not found: {selector}"
+                self.last_error = self.redactor.redact(
+                    f"Selector not found: {selector}"
+                )
                 logger.error(self.last_error)
                 return False
             await self.page.click(resolved)
-            logger.info(f"Clicked: {resolved}")
-            self.transcript.append({"action": "click", "selector": resolved})
+            logger.info("Clicked: %s", self.redactor.redact(resolved))
+            self._record({"action": "click", "selector": resolved})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Click failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Click failed: %s", type(e).__name__)
             return False
 
     async def type_text(self, selector: str, text: str) -> bool:
         try:
+            text, safe_text = self._prepare_text(text)
             resolved = await self._resolve_selector(selector)
             if not resolved:
-                self.last_error = f"Selector not found: {selector}"
+                self.last_error = self.redactor.redact(
+                    f"Selector not found: {selector}"
+                )
                 logger.error(self.last_error)
                 return False
             await self.page.fill(resolved, "")
             await self.page.type(resolved, text, delay=50)
-            logger.info(f"Typed into: {resolved}")
-            self.transcript.append({"action": "type", "selector": resolved})
+            logger.info("Typed into: %s", self.redactor.redact(resolved))
+            self._record({"action": "type", "selector": resolved, "text": safe_text})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Type failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Type failed: %s", type(e).__name__)
             return False
 
     async def click_at(self, x: float, y: float) -> bool:
@@ -114,38 +149,56 @@ class BrowserController:
             x_px, y_px = self._resolve_coordinates(x, y)
             await self.page.mouse.click(x_px, y_px)
             logger.info(f"Clicked at: {x_px},{y_px}")
-            self.transcript.append({"action": "click_at", "x": x_px, "y": y_px})
+            self._record(
+                {
+                    "action": "click_at",
+                    "x": x_px,
+                    "y": y_px,
+                    "coordinate_space": "pixels",
+                    "viewport": self._viewport(),
+                }
+            )
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Click-at failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Click-at failed: %s", type(e).__name__)
             return False
 
     async def type_at(self, x: float, y: float, text: str) -> bool:
         try:
+            text, safe_text = self._prepare_text(text)
             x_px, y_px = self._resolve_coordinates(x, y)
             await self.page.mouse.click(x_px, y_px)
             await self.page.keyboard.type(text, delay=50)
             logger.info(f"Typed at: {x_px},{y_px}")
-            self.transcript.append({"action": "type_at", "x": x_px, "y": y_px})
+            self._record(
+                {
+                    "action": "type_at",
+                    "x": x_px,
+                    "y": y_px,
+                    "text": safe_text,
+                    "coordinate_space": "pixels",
+                    "viewport": self._viewport(),
+                }
+            )
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Type-at failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Type-at failed: %s", type(e).__name__)
             return False
 
     async def press_enter(self) -> bool:
         try:
             await self.page.keyboard.press("Enter")
             logger.info("Pressed Enter")
-            self.transcript.append({"action": "press_enter"})
+            self._record({"action": "press_enter"})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Press Enter failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Press Enter failed: %s", type(e).__name__)
             return False
 
     async def scroll(self, direction: str, amount: int) -> bool:
@@ -167,32 +220,32 @@ class BrowserController:
                 "({dx, dy}) => window.scrollBy(dx, dy)", {"dx": dx, "dy": dy}
             )
             logger.info(f"Scrolled {direction} by {amount}")
-            self.transcript.append(
-                {"action": "scroll", "direction": direction, "amount": amount}
-            )
+            self._record({"action": "scroll", "direction": direction, "amount": amount})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Scroll failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Scroll failed: %s", type(e).__name__)
             return False
 
     async def wait(self, seconds: float) -> bool:
         try:
             await self.page.wait_for_timeout(int(seconds * 1000))
-            self.transcript.append({"action": "wait", "seconds": seconds})
+            self._record({"action": "wait", "seconds": seconds})
             self.last_error = None
             return True
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Wait failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Wait failed: %s", type(e).__name__)
             return False
 
     async def extract(self, selector: str, attr: str) -> Tuple[bool, Optional[str]]:
         try:
             resolved = await self._resolve_selector(selector)
             if not resolved:
-                self.last_error = f"Selector not found: {selector}"
+                self.last_error = self.redactor.redact(
+                    f"Selector not found: {selector}"
+                )
                 logger.error(self.last_error)
                 return False, None
             attr_lower = attr.lower()
@@ -207,7 +260,7 @@ class BrowserController:
                     resolved, "(el, attr) => el.getAttribute(attr)", attr
                 )
 
-            self.transcript.append(
+            self._record(
                 {
                     "action": "extract",
                     "selector": resolved,
@@ -218,8 +271,8 @@ class BrowserController:
             self.last_error = None
             return True, value
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Extract failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Extract failed: %s", type(e).__name__)
             return False, None
 
     async def extract_all(self, selector: str, attr: str) -> Tuple[bool, List[str]]:
@@ -231,10 +284,10 @@ class BrowserController:
             elif attr_lower == "value":
                 script = "els => els.map(el => el.value)"
             else:
-                script = f"els => els.map(el => el.getAttribute('{attr}'))"
+                script = "(els, attr) => els.map(el => el.getAttribute(attr))"
 
-            values = await self.page.eval_on_selector_all(selector, script)
-            self.transcript.append(
+            values = await self.page.eval_on_selector_all(selector, script, attr)
+            self._record(
                 {
                     "action": "extract_all",
                     "selector": selector,
@@ -245,8 +298,8 @@ class BrowserController:
             self.last_error = None
             return True, values
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Extract all failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Extract all failed: %s", type(e).__name__)
             return False, []
 
     async def get_element_bounds(self, selector: str) -> Optional[Dict[str, float]]:
@@ -270,7 +323,7 @@ class BrowserController:
                 }
             return None
         except Exception as e:
-            logger.warning(f"Could not get element bounds: {e}")
+            logger.warning("Could not get element bounds: %s", type(e).__name__)
             return None
 
     async def scan_interactive_elements(
@@ -368,7 +421,7 @@ class BrowserController:
             return elements
 
         except Exception as e:
-            logger.error(f"Failed to scan interactive elements: {e}")
+            logger.error("Failed to scan interactive elements: %s", type(e).__name__)
             return []
 
     def _generate_playwright_locator(self, el: Dict[str, Any]) -> str:
@@ -492,7 +545,7 @@ class BrowserController:
             if "captcha" in body_text.lower():
                 return True
         except Exception as e:
-            logger.warning(f"Captcha detection failed: {e}")
+            logger.warning("Captcha detection failed: %s", type(e).__name__)
         return False
 
     async def click_first_checkbox(self) -> bool:
@@ -510,10 +563,12 @@ class BrowserController:
                 await checkbox.scroll_into_view_if_needed()
                 await checkbox.click()
                 logger.info("Auto-checked a checkbox")
-                self.transcript.append({"action": "auto_checkbox_click"})
+                self._record(
+                    {"action": "click", "selector": f"input[type=checkbox] >> nth={i}"}
+                )
                 return True
         except Exception as e:
-            logger.error(f"Auto checkbox click failed: {e}")
+            logger.error("Auto checkbox click failed: %s", type(e).__name__)
         return False
 
     async def _selector_exists(self, selector: str) -> bool:
@@ -521,8 +576,8 @@ class BrowserController:
             locator = self.page.locator(selector)
             return await locator.count() > 0
         except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Selector check failed: {e}")
+            self.last_error = self.redactor.redact(str(e))
+            logger.error("Selector check failed: %s", type(e).__name__)
             return False
 
     async def _resolve_selector(self, selector: str) -> Optional[str]:
@@ -531,7 +586,11 @@ class BrowserController:
 
         for alt in self._selector_alternatives(selector):
             if await self._selector_exists(alt):
-                logger.info(f"Selector fallback: {selector} -> {alt}")
+                logger.info(
+                    "Selector fallback: %s -> %s",
+                    self.redactor.redact(selector),
+                    self.redactor.redact(alt),
+                )
                 return alt
 
         return None
@@ -600,8 +659,8 @@ class BrowserController:
         path = (
             Path(config.browser.transcript_dir) / f"{self.session_id}_transcript.json"
         )
-        with open(path, "w") as f:
-            json.dump(self.transcript, f, indent=2)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.redactor.redact(self.transcript), f, indent=2)
         return str(path)
 
     async def _collect_videos(self):
@@ -611,7 +670,7 @@ class BrowserController:
                 if path:
                     self.video_paths.append(str(path))
             except Exception as e:
-                logger.warning(f"Unable to collect video path: {e}")
+                logger.warning("Unable to collect video path: %s", type(e).__name__)
 
     async def close(self) -> Dict[str, Any]:
         if self.page and not self.page.is_closed():
@@ -627,7 +686,7 @@ class BrowserController:
                         path=config.browser.storage_state_path
                     )
             except Exception as e:
-                logger.warning(f"Failed to save storage state: {e}")
+                logger.warning("Failed to save storage state: %s", type(e).__name__)
 
         await self._collect_videos()
 

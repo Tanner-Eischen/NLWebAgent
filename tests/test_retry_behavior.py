@@ -1,22 +1,12 @@
-import os
 import unittest
 from pathlib import Path
 
-os.environ.setdefault("HEADLESS", "true")
-os.environ.setdefault("RECORD_VIDEO", "false")
-os.environ.setdefault("TIMEOUT_SECONDS", "2")
+import pytest
 
-try:
-    import playwright.async_api  # noqa: F401
-except Exception as exc:
-    raise unittest.SkipTest(f"playwright not installed: {exc}")
+from agent.orchestrator import WebAutomationAgent
+from browser.playwright_agent import BrowserController
 
-from config import config  # noqa: E402
-
-config.reload()
-
-from agent.orchestrator import WebAutomationAgent  # noqa: E402
-from browser.playwright_agent import BrowserController  # noqa: E402
+pytestmark = pytest.mark.browser
 
 
 class FakeModelSelector:

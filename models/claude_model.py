@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from anthropic import Anthropic, AsyncAnthropic
+from anthropic import AsyncAnthropic
 
 from config import config
 from models.base_model import AIModel
@@ -16,13 +16,19 @@ class ClaudeModel(AIModel):
             raise ValueError("CLAUDE_API_KEY not configured")
 
         # Support custom base_url for z.ai or other proxies
-        client_kwargs = {"api_key": key}
+        client_kwargs = {
+            "api_key": key,
+            "timeout": config.model.model_timeout_seconds,
+            "max_retries": 0,
+        }
         if base_url:
             client_kwargs["base_url"] = base_url
 
-        self.client = Anthropic(**client_kwargs)
         self.async_client = AsyncAnthropic(**client_kwargs)
         self.model = config.model.claude_model_name
+
+    async def close(self):
+        await self.async_client.close()
 
     async def analyze_screenshot(self, screenshot_path: str, prompt: str) -> str:
         self._ensure_image_path(screenshot_path)
